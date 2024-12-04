@@ -1,0 +1,136 @@
+---
+title: "99_update"
+author: "Randy"
+date: "5/12/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(mgcv)
+library(INLA)
+library(brinla)
+library(splines)
+
+knitr::opts_chunk$set(
+  echo = FALSE,
+  cache = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 7,
+  fig.height = 5)
+
+theme_set(theme_bw() + 
+            theme(legend.position = "none"))
+```
+
+
+
+
+```{r}
+load("bios7720_inla_nhanes_naive.Rdata")
+load("bios7720_inla_nhanes_fri.Rdata")
+load("bios7720_nhanes_fri.Rdata")
+```
+
+
+```{r}
+summary(fit_fri)
+summary(fit_inla)
+summary(fit_inla_fri)
+```
+
+
+```{r}
+set.seed(9454785)
+## read in the data
+df <- readr::read_rds(here::here("NHANES_AC_processed.rds")) %>%
+  filter(DoW %in% "Saturday",
+         good_day %in% 1,
+         Age <= 25) 
+## extract activity counts (Y), create binary RV (Z)
+Y <- as.matrix(df[, paste0("MIN", 1:1440)])
+Y[is.na(Y)] <- 0
+Z <- apply(Y >= 100, 2, as.numeric)
+
+## bin the data into 20 minute intervals
+N <- nrow(Y)
+tlen <- 20
+nt <- ceiling(1440 / tlen)
+inx_cols <- split(1:1440, rep(1:nt, each = tlen)[1:1440])
+Z_bin <- vapply(inx_cols, 
+                function(x) rowSums(Z[, x, drop = FALSE]), 
+                numeric(N))
+
+## add binned data back into our data frame
+df[["Z_bin"]] <- Z_bin
+
+# View(Mortality_2011_C)
+
+df <- inner_join(Mortality_2011_C, df, by = "SEQN")
+View(df)
+```
+
+
+```{r}
+## remove unnecesarry minute columns
+df <- dplyr::select(df, mortstat, Age, SEQN, 
+                    BMI, Z_bin, Gender, 
+                    CHD, CHF, Race, 
+                    Cancer, Stroke, Diabetes) %>%  
+  mutate(mortstat = case_when(mortstat == NA ~ 1,
+                              mortstat == 0 ~ 0),
+         CHD = case_when(CHD == NA ~ "Yes",
+                         CHD == "No" ~ "No"),
+         CHF = case_when(CHF == NA ~ "Yes",
+                         CHF == "No" ~ "No"),
+         ID = factor(SEQN))
+
+N <- nrow(df)
+sind <- seq(0, 1, len = nt)
+df_long <- data.frame("Y" = as.vector(t(df$mortstat)),
+                      "Age" = rep(df$Age, each = nt),
+                      "Gender" = rep(df$Gender, each = nt),
+                      "sind" = rep(sind, N),
+                      "ID" = rep(df$ID, each = nt),
+                      "BMI" = rep(df$BMI, each = nt),
+                      "CHD" = rep(df$CHD, each = nt),
+                      "CHF" = rep(df$CHF, each = nt),
+                      "Race" = rep(df$Race, each = nt),
+                      "Cancer" = rep(df$Cancer, each = nt),
+                      "Stroke" = rep(df$Stroke, each = nt),
+                      "Diabetes" = rep(df$Diabetes, each = nt))
+```
+
+
+```{r}
+fit_marginal <- bam(Y ~ s(sind, bs = "cc", k = 10) +
+                       s(sind, by = Age, bs = "cc", k = 10) +
+                       s(sind, by = Gender, bs = "cc", k = 10) +
+                       s(sind, by = BMI, bs = "cc", k = 10) +
+                       s(sind, by = Race, bs = "cc", k = 10),
+                     family = "binomial", 
+                     data = df_long,
+                     method = "fREML", 
+                     discrete = TRUE)
+View(fit_marginal)
+```
+
+
+```{r}
+df_fit_sub$Phi1 <- INLA::inla.group(df_fit_sub$Phi1, n = n.group, method = "quantile")
+df_fit_sub$Phi2 <- INLA::inla.group(df_fit_sub$Phi2, n = n.group, method = "quantile")
+df_fit_sub$Phi3 <- INLA::inla.group(df_fit_sub$Phi3, n = n.group, method = "quantile")
+df_fit_sub$Phi4 <- INLA::inla.group(df_fit_sub$Phi4, n = n.group, method = "quantile")
+
+formula_nh2 <- lAC ~ -1 + f(Age, model = "rw1", scale.model = TRUE, constr = FALSE) +
+                   f(Phi1, model = "rw1", scale.model = TRUE) + 
+                   f(Phi2, model = "rw1", scale.model = TRUE) + 
+                   f(Phi3, model = "rw1", scale.model = TRUE) + 
+                   f(Phi4, model = "rw1", scale.model = TRUE)
+fit_inla_fri <- INLA::inla(formula_nh2, data = df_fit_sub)
+```
+
+
+
+
