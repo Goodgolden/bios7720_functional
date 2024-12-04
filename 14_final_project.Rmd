@@ -1,0 +1,32 @@
+---
+title: "14_final_project"
+author: "Randy"
+date: "5/15/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+due to this intrinsically infinite dimensional feature of functional data, dimension reduction is the key for modeling and sequential analysis. 
+
+that are viewed simultaneously over the range of$\alpha$, usually for A = 2, substituting estimates for the unknown quantities.
+
+
+
+The first eigenfunction explains 84.41% of the total variation of the data and the second
+one an additional 12.33% of the data. The remaining two eigenfunctions account for less
+than 4% of the total variation and are not important. Here the first eigenfunction is nearly
+constant in time implying that the largest variation between subjects is in the subject
+specific average magnitude of the CD4 counts, so the random intercept captures the largest
+variation of the data. The second eigenfunction shows a variation around a piecewise linear
+time trend with a break point near 2.5 year after seroconversion reflecting that the next
+largest variation between subjects is a scale difference between subjects along the direction
+of this piecewise linear function.
+
+FPCA also facilitates functional principal component regression by projecting functional
+predictors to their first few principal components, then employing regression models with
+vector predictors. Since FPCA is an essential dimension reduction tool, it is also useful for
+classification and clustering of functional data (see Section 4).
+

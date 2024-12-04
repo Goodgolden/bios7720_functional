@@ -1,0 +1,249 @@
+---
+title: "Explorations and Experiments on INLA with NHANES data, PartII"
+subtitle: "BIOS 7720"
+author: "Randy"
+date: April 20, 2021
+header-includes:
+   - \usepackage{bm}
+output:
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      cache = TRUE,
+                      warning = FALSE,
+                      message = FALSE)
+```
+
+## Random Walk and Smoothing functions
+
+$$
+\int \Big(f^{(m)}(x) \Big)^2dx\ \approx\ d^{-(2m-1)} \sum_{i=m+1}^n[\nabla^m f(x_i)] ^2
+$$
+
+$d$ is the samll and equal space for $d_i = x_i - x_{i-1}$;    
+$m^{th}$ derivative of $f$ is continuous;    
+$\nabla^m$ is the $m^th$ order backward difference operator:        
+$\nabla^1 f(x) = f(x_i) -f(x_{i-1})$        
+$\nabla^2 f(x) = f(x_i) -2f(x_{i-1}) + f(x_{i-2})$        
+
+
+## Random Walk and Smoothing functions
+
+$$
+\nabla^m f(x_i)\ \overset{iid}{\sim}\ Normal(0,\ \sigma^2_f\ ),\ i = m+1,\ ...,\ n.
+$$
+
+$$
+\sqrt {\frac {\| \mathcal{Q_m} \|_+} {2\pi\sigma_f^2}} exp \Bigg(-\frac {1}{2\sigma^2_f} f^{\top}\mathcal{Q_m}f\Bigg)
+$$
+
+## simulation and comparison
+
+```{r}
+library(INLA)
+library(brinla)
+library(tidyverse)
+library(mgcv)
+
+set.seed(555)
+n <- 100
+x <- seq(0, 1, , n)
+f.true <- (sin(2 * pi * x^3))^3
+y <- f.true + rnorm(n, sd = 0.2)
+```
+
+
+## RW1 and RW2
+```{r}
+data.inla <- data.frame(y = y, x = x)
+formula1 <- y ~ -1 + f(x, model = "rw1", constr = FALSE)
+system.time(result1 <- inla(formula1, data = data.inla))
+
+formula2 <- y ~ -1 + f(x, model = "rw2", constr = FALSE)
+system.time(result2 <- inla(formula2, data = data.inla))
+# names(inla.models()$latent)
+```
+
+
+## RW1 and RW2
+
+```{r}
+head(result1$summary.random$x) %>% round(4)
+head(result2$summary.random$x) %>% round(4)
+```
+
+## cubic
+
+```{r}
+#### smooth_spline() ----------
+fit.ss <- smooth.spline(x, y)
+res <- (fit.ss$yin - fit.ss$y) / (1 - fit.ss$lev)
+fhat3 <- fit.ss$y 
+## lower bound
+f.lb3 <- fhat3 - 2 * sd(res) * sqrt(fit.ss$lev) 
+## upper bound
+f.ub3 <- fhat3 + 2 * sd(res) * sqrt(fit.ss$lev)
+```
+
+## mgcv gam
+
+```{r}
+#### gam() Sun Apr 04 09:19:51 2021 ---------
+system.time(fit.gam <- gam(y ~ s(x)))
+res.gam <- predict(fit.gam, se.fit = TRUE)
+## fitted curve
+fhat4 <- res.gam$fit 
+## lower bound
+f.lb4 <- res.gam$fit - 2 * res.gam$se.fit 
+## upper bound
+f.ub4 <- res.gam$fit + 2 * res.gam$se.fit 
+```
+
+```{r include=FALSE}
+fhat1 <- result1$summary.random$x$mean
+f.lb1 <- result1$summary.random$x$"0.025quant"
+f.ub1 <- result1$summary.random$x$"0.975quant"
+data.plot1 <- data.frame(y = y, x = x, 
+                        f.true = f.true, 
+                        fhat = fhat1, 
+                        f.lb = f.lb1, 
+                        f.ub = f.ub1)
+
+
+fhat2 <- result2$summary.random$x$mean
+f.lb2 <- result2$summary.random$x$"0.025quant"
+f.ub2 <- result2$summary.random$x$"0.975quant"
+data.plot2 <- data.frame(y = y, x = x, 
+                        f.true = f.true, 
+                        fhat = fhat2, 
+                        f.lb = f.lb2, 
+                        f.ub = f.ub2)
+
+
+data.plot3 <- data.frame(y = y, x = x, 
+                        f.true = f.true, 
+                        fhat = fhat3, 
+                        f.lb = f.lb3, 
+                        f.ub = f.ub3)
+
+data.plot4 <- data.frame(y = y, x = x, 
+                        f.true = f.true, 
+                        fhat = fhat4, 
+                        f.lb = f.lb4, 
+                        f.ub = f.ub4)
+
+plot1 <- data.plot1 %>%
+  ggplot(aes(x = x, y = y)) +
+  geom_line(aes(y = fhat), size = 2, color = "darkgreen") +
+  geom_line(aes(y = f.true), size = 2, color = "indianred") +
+  geom_ribbon(aes(ymin = f.lb, ymax = f.ub), alpha = 0.2) +
+  geom_point(aes(y = y)) +
+  theme_bw(base_size = 20) +
+  ggtitle("RW1")
+
+plot2 <- data.plot2 %>%
+  ggplot(aes(x = x, y = y)) +
+  geom_line(aes(y = fhat), size = 2, color = "darkgreen") +
+  geom_line(aes(y = f.true), size = 2, color = "indianred") +
+  geom_ribbon(aes(ymin = f.lb, ymax = f.ub), alpha = 0.2) +
+  geom_point(aes(y = y)) +
+  theme_bw(base_size = 20) +
+  ggtitle("RW2")
+
+plot3 <- data.plot3 %>%
+  ggplot(aes(x = x, y = y)) +
+  geom_line(aes(y = fhat), size = 2, color = "darkgreen") +
+  geom_line(aes(y = f.true), size = 2, color = "indianred") +
+  geom_ribbon(aes(ymin = f.lb, ymax = f.ub), alpha = 0.2) +
+  geom_point(aes(y = y)) +
+  theme_bw(base_size = 20) +
+  ggtitle("cubic")
+
+plot4 <- data.plot4 %>%
+  ggplot(aes(x = x, y = y)) +
+  geom_line(aes(y = fhat), size = 2, color = "darkgreen") +
+  geom_line(aes(y = f.true), size = 2, color = "indianred") +
+  geom_ribbon(aes(ymin = f.lb, ymax = f.ub), alpha = 0.2) +
+  geom_point(aes(y = y)) +
+  theme_bw(base_size = 20) +
+  ggtitle("mgcv")
+```
+
+
+```{r fig.height=10, fig.width=10}
+gridExtra::grid.arrange(plot1, plot2, plot3, plot4, nrow = 2)
+```
+
+## the cherry on the top - prior
+
+* To allow the data to speak for themselves,          
+weakly informative or non-informative priors             
+are often used in this situation. 
+```{r}
+a1 <- 3
+b1 <- 5e-5
+a2 <- -0.5
+b2 <- 5e-5
+
+lgprior1 <- list(prec = list(param = c(a1, b1)))
+lgprior2 <- list(prec = list(param = c(a2, b2)))
+
+formula5 <- y ~ -1 + f(x, model = "rw2", 
+                      constr = FALSE, 
+                      hyper = lgprior2)
+
+system.time(
+result5 <- inla(formula5, 
+               data = data.inla, 
+               ## used to specify the prior on delta
+               ## and hyper in f() in f() on tao
+               control.family = list(hyper = lgprior1))
+)
+```
+
+## the cherry on the top - prior
+
+* the resulting posterior distributions do not differ much                
+from those given by the default priors
+
+```{r}
+## posterior mean
+fhat <- result5$summary.random$x$mean 
+## 2.5% percentile
+f.lb <- result5$summary.random$x$"0.025quant"
+## 97.5% percentile
+f.ub <- result5$summary.random$x$"0.975quant" 
+
+
+data.plot5 <- data.frame(y = y, x = x, 
+                        f.true = f.true, 
+                        fhat = fhat, 
+                        f.lb = f.lb, 
+                        f.ub = f.ub)
+
+plot5 <- data.plot5 %>%
+  ggplot(aes(x = x, y = y)) +
+  geom_line(aes(y = fhat), size = 2, color = "darkgreen") +
+  geom_line(aes(y = f.true), size = 2, color = "indianred") +
+  geom_ribbon(aes(ymin = f.lb, ymax = f.ub), alpha = 0.2) +
+  geom_point(aes(y = y)) +
+  theme_bw(base_size = 20) +
+  ggtitle("prior")
+```
+
+
+```{r fig.height=5, fig.width=15}
+gridExtra::grid.arrange(plot2, plot4, plot5, nrow = 1)
+```
+
+
+
+
+
+
+
+
+
+

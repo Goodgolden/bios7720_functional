@@ -1,0 +1,1039 @@
+---
+title: "01_gam"
+author: "Randy"
+date: "3/7/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+## need to specify the REML as the default for mgcv
+```
+
+## 4.2.1
+
+```{r}
+require(gamair)
+# library(help = gamair)
+
+data(engine)
+attach(engine)
+plot(size,
+     wear,
+     xlab="Engine capacity",
+     ylab="Wear index")
+
+```
+
+## 4.2.2
+```{r}
+## return a list of points 
+## which linearly interpolate given data points, 
+## or a function performing the linear 
+## (or constant) interpolation.
+? approx
+## approx(x, y = NULL, 
+##        xout, 
+##        method = "linear", 
+##        ties = mean, 
+##        na.rm = TRUE)
+
+#' @description take a sequence of knots 
+#' and an array of x values 
+#' to produce a model matrix 
+#' for the piecewise linear function
+tf <- function(x, xj, j) {
+  ## generate jth tent function 
+  ## from set defined by knots xj
+  dj <- xj * 0
+  dj[j] <- 1
+  approx(xj, dj, x)$y
+}
+
+
+tf.X <- function(x, xj) {
+  ## tent function basis matrix given 
+  ## data x and knot sequence xj
+  ## nk number of knots
+  nk <- length(xj)
+  n <- length(x)
+  X <- matrix(NA, n, nk)
+  for (j in 1:nk) 
+    X[, j] <- tf(x, xj, j)
+  X
+}
+```
+
+```{r}
+sj <- seq(min(size), max(size), length = 6) 
+## generate knots
+# sj
+
+X <- tf.X(size, sj) 
+## get model matrix
+View(X)
+
+b <- lm(wear ~ X - 1) 
+## fit model
+# b
+
+s <- seq(min(size), max(size), length = 200)
+## prediction data
+
+Xp <- tf.X(s, sj) 
+## prediction matrix
+
+plot(size, wear) 
+## plot data
+lines(s, Xp %*% coef(b), col = "green") 
+## overlay estimated f
+```
+we need to choose the basis dimension, k, 
+the (evenly spaced) knot locations, x∗ j, 
+and a value for the smoothing parameter, λ. 
+
+Provided that k is large enough that 
+the basis is more flexible 
+than we expect to need to represent f(x), 
+then neither the exact choice of k, 
+nor the precise selection of knot locations,
+has a great deal of influence on the model fit. 
+
+Rather it is the choice of λ that 
+now plays the crucial role 
+in determining model flexibility, 
+and ultimately the shape of $\hat{f}(x)$.
+```{r}
+prs.fit <- function(y, x, xj, sp) {
+  X <- tf.X(x, xj) 
+  ## model matrix
+  
+  D <- diff(diag(length(xj)),
+            differences = 2) 
+  ## sqrt penalty
+  
+  X <- rbind(X, sqrt(sp) * D) 
+  ## augmented model matrix
+  
+  y <- c(y, rep(0, nrow(D))) 
+  ## augmented data
+  
+  lm(y ~ X - 1) 
+  ## penalized least squares fit
+}
+```
+
+```{r}
+sj <- seq(min(size), max(size), length = 20) 
+## knots
+
+b <- prs.fit(wear, size, sj, 2) 
+## penalized fit
+
+plot(size, wear) 
+## plot data
+
+Xp <- tf.X(s, sj) 
+## prediction matrix
+
+lines(s, Xp %*% coef(b)) 
+## plot the smooth
+```
+
+## 4.2.3
+
+```{r}
+rho = seq(-9, 11, length = 90)
+n <- length(wear)
+V <- rep(NA, 90)
+
+for (i in 1:90) { 
+  ## loop through smoothing params
+  b <- prs.fit(wear, size, sj, exp(rho[i])) 
+  ## fit model
+  
+  ## the influence() function returns 
+  ## a list of diagnostics including hat,
+  ## an array of the elements on 
+  ## the leading diagonal of the influence/hat matrix 
+  ## of the augmented model.
+  trF <- sum(influence(b)$hat[1:n]) 
+  ## extract EDF
+  
+  rss <- sum((wear - fitted(b)[1:n])^2) 
+  ## residual SS
+   
+  V[i] <- n * rss / (n - trF)^2 
+  ## GCV score
+}
+```
+
+```{r}
+plot(rho, V, type = "l",
+     xlab = expression(log(lambda)),
+     main = "GCV score")
+
+sp <- exp(rho[V == min(V)]) 
+## extract optimal sp
+
+b <- prs.fit(wear, size, sj, sp) 
+## re-fit
+
+plot(size, wear, 
+     main = "GCV optimal fit")
+
+lines(s, Xp %*% coef(b))
+```
+
+## 4.2.3 mixed model connection
+
+```{r}
+## copy of llm from 2.2.4...
+llm <- function(theta, X, Z, y) {
+  ## untransform parameters...
+  sigma.b <- exp(theta[1])
+  sigma <- exp(theta[2])
+  
+  ## extract dimensions...
+  n <- length(y)
+  pr <- ncol(Z) 
+  pf <- ncol(X)
+  
+  ## obtain \hat \beta, \hat b...
+  X1 <- cbind(X, Z)
+  ipsi <- c(rep(0, pf),
+            rep(1 / sigma.b^2, pr))
+  b1 <- solve(crossprod(X1) / sigma^2 + diag(ipsi),
+              t(X1) %*% y / sigma^2)
+  
+  ## compute log|Z'Z/sigma^2 + I/sigma.b^2|...
+  ldet <- sum(log(diag(chol(crossprod(Z) / sigma^2 + 
+              diag(ipsi[-(1:pf)])))))
+  
+  ## compute log profile likelihood...
+  l <- (-sum((y - X1 %*% b1)^2) / sigma^2 - 
+          sum(b1^2 * ipsi) - 
+          n * log(sigma^2) - 
+          pr * log(sigma.b^2) - 
+          2 * ldet - n * log(2 * pi)) / 2
+  attr(l, "b") <- as.numeric(b1) 
+  ## return \hat beta and \hat b
+  
+  return(-l) 
+}
+```
+
+```{r}
+X0 <- tf.X(size, sj)           
+## X in original parameterization
+
+D <- rbind(0, 0, diff(diag(20), difference = 2)) 
+D
+diag(D) <- 1
+## augmented D
+D
+
+X <- t(backsolve(t(D), t(X0)))
+## re-parameterized X
+
+Z <- X[ , -c(1, 2)]
+X <- X[ , 1:2] 
+## mixed model matrices
+```
+
+```{r}
+## estimate smoothing and variance parameters...
+m <- optim(c(0, 0),
+           llm,
+           method = "BFGS",
+           X = X,
+           Z = Z,
+           y = wear)
+
+b <- attr(llm(m$par, X, Z, wear), "b") 
+## extract coefficients
+
+## plot results...
+plot(size, wear)
+
+Xp1 <- t(backsolve(t(D), t(Xp))) 
+## re-parameterized pred. mat.
+lines(s, Xp1 %*% as.numeric(b), 
+      col = "grey",
+      lwd = 2)
+```
+
+
+```{r}
+library(nlme)
+g <- factor(rep(1, nrow(X)))
+## dummy factor
+
+m <- lme(wear ~ X - 1, 
+         random = list(g = pdIdent(~ Z - 1)))
+
+plot(size, wear)
+y <- Xp1 %*% as.numeric(coef(m))
+lines(s, y) 
+## and to plot
+```
+
+## 4.3.1 Additive
+
+```{r}
+tf.XD <- function(x, xk, cmx = NULL, m = 2) {
+  ## get X and D subject to constraint
+  nk <- length(xk)
+  X <- tf.X(x, xk)[ , -nk]                   
+  ## basis matrix
+  
+  D <- diff(diag(nk),
+            differences=m)[ , -nk] 
+  ## root penalty
+  if (is.null(cmx)) cmx <- colMeans(X)
+  X <- sweep(X,2,cmx)        
+  ## subtract cmx from columns
+  
+  list(X=X,D=D,cmx=cmx)
+} 
+
+am.fit <- function(y, x, v, sp, k = 10) {
+  ## setup bases and penalties...
+  xk <- seq(min(x), max(x), length = k)
+  xdx <- tf.XD(x, xk)
+  vk <- seq(min(v), max(v), length=k)
+  xdv <- tf.XD(v, vk)
+  ## create augmented model matrix and response...
+  nD <- nrow(xdx$D) * 2
+  sp <- sqrt(sp)
+  X <- cbind(c(rep(1, nrow(xdx$X)), rep(0, nD)),
+             rbind(xdx$X, sp[1] * xdx$D, xdv$D * 0),
+             rbind(xdv$X, xdx$D * 0, sp[2] * xdv$D))  
+  y1 <- c(y, rep(0, nD))
+  ## fit model..
+  b <- lm(y1 ~ X - 1)
+  ## compute some useful quantities...
+  n <- length(y)
+  trA <- sum(influence(b)$hat[1:n]) 
+  ## EDF
+  
+  rsd <- y - fitted(b)[1:n] 
+  ## residuals
+  rss <- sum(rsd^2)       
+  ## residual SS
+  sig.hat <- rss / (n - trA)       
+  ## residual variance
+  gcv <- sig.hat * n / (n - trA)    
+  ## GCV score
+  
+  Vb <- vcov(b) * sig.hat / summary(b)$sigma^2 
+  ## coeff cov matrix
+  ## return fitted model...
+  list(b = coef(b),
+       Vb = Vb,
+       edf = trA,
+       gcv = gcv,
+       fitted = fitted(b)[1:n],
+       rsd = rsd,
+       xk = list(xk, vk),
+       cmx = list(xdx$cmx, xdv$cmx))
+} 
+```
+
+```{r}
+am.gcv <- function(lsp, y, x, v, k) {
+  ## function suitable for GCV optimization by optim 
+  am.fit(y, x, v, exp(lsp), k)$gcv
+}
+
+## find GCV optimal smoothing parameters... 
+fit <- optim(c(0, 0), 
+             am.gcv, 
+             y = trees$Volume, 
+             x = trees$Girth,
+             v = trees$Height,
+             k = 10)
+sp <- exp(fit$par) 
+## best fit smoothing parameters
+
+## Get fit at GCV optimal smoothing parameters...
+fit <- am.fit(trees$Volume,
+              trees$Girth,
+              trees$Height,
+              sp,
+              k = 10)
+
+am.plot <- function(fit, xlab, ylab) {
+  ## produces effect plots for simple 2 term 
+  ## additive model 
+  start <- 2 
+  ## where smooth coeffs start in beta
+  for (i in 1:2) {
+    ## sequence of values at which to predict...
+    x <- seq(min(fit$xk[[i]]), 
+             max(fit$xk[[i]]),
+             length = 200)
+    ## get prediction matrix for this smooth...
+    Xp <- tf.XD(x,fit$xk[[i]],
+                fit$cmx[[i]])$X 
+    ## extract coefficients and cov matrix for this smooth
+    stop <- start + ncol(Xp) - 1
+    ind <- start:stop
+    b <- fit$b[ind]
+    Vb <- fit$Vb[ind, ind]
+    ## values for smooth at x...
+    fv <- Xp %*% b
+    ## standard errors of smooth at x....
+    se <- rowSums((Xp %*% Vb) * Xp)^.5
+    ## 2 s.e. limits for smooth...
+    ul <- fv + 2 * se
+    ll <- fv - 2 * se
+    ## plot smooth and limits...
+    plot(x, fv, 
+         type = "l",
+         ylim = range(c(ul, ll)), 
+         xlab = xlab[i],
+         ylab = ylab[i])
+    lines(x, ul, lty = 2)
+    lines(x, ll, lty = 2)
+    start <- stop + 1
+  }
+} ## am.plot
+```
+
+```{r}
+par(mfrow = c(1,3))
+plot(fit$fitted,
+     trees$Vol,
+     xlab = "fitted volume ",
+     ylab = "observed volume")
+
+am.plot(fit, 
+        xlab = c("Girth", "Height"),
+        ylab = c("s(Girth)", "s(Height)"))
+```
+
+## 4.4 Generalized additive
+```{r}
+gam.fit <- function(y, x, v, sp, k = 10) {
+  ## gamma error log link 2 term gam fit...
+  eta <- log(y) 
+  ## get initial eta
+  not.converged <- TRUE
+  old.gcv <- -100 
+  ## don't converge immediately
+  while (not.converged) {
+    mu <- exp(eta)  
+    ## current mu estimate  
+    z <- (y - mu) / mu + eta 
+    ## pseudodata
+    fit <- am.fit(z, x, v, sp, k) 
+    ## penalized least squares
+    if (abs(fit$gcv - old.gcv) < 1e-5 * fit$gcv) {
+      not.converged <- FALSE
+    }
+    old.gcv <- fit$gcv 
+    eta <- fit$fitted 
+    ## updated eta
+  }
+  
+  fit$fitted <- exp(fit$fitted) 
+  ## mu
+  fit
+} ## gam.fit
+```
+
+```{r}
+gam.gcv <- function(lsp, y, x, v, k = 10) {
+  gam.fit(y, x, v, exp(lsp), k = k)$gcv
+}
+
+fit <- optim(c(0, 0),
+             gam.gcv,
+             y = trees$Volume,
+             x = trees$Girth,
+             v = trees$Height,
+             k = 10)
+sp <- exp(fit$par)
+fit <- gam.fit(trees$Volume,
+               trees$Girth,
+               trees$Height,
+               sp)
+par(mfrow = c(1, 3))
+plot(fit$fitted,
+     trees$Vol,
+     xlab = "fitted volume ",
+     ylab = "observed volume")
+am.plot(fit,
+        xlab = c("Girth", "Height"),
+        ylab = c("s(Girth)", "s(Height)"))
+```
+
+## 4.6 mgcv
+```{r}
+library(mgcv)   
+## load the package
+library(gamair)
+
+data(trees)
+ct1 <- gam(Volume ~ s(Height) + s(Girth),
+           family = Gamma(link = log),
+           data = trees)
+ct1
+plot(ct1, residuals = TRUE)
+```
+
+## 4.6.1
+```{r}
+ct2 <- gam(Volume ~ s(Height, bs = "cr") + 
+                    s(Girth, bs = "cr"),
+           family = Gamma(link = log),
+           data = trees)
+# ct2 %>% summary()
+
+ct3 <- gam(Volume ~ s(Height) + 
+                    s(Girth, bs = "cr", k = 20),
+           family = Gamma(link = log), 
+           data = trees)
+# ct3 %>% View()
+
+ct4 <- gam(Volume ~ s(Height) + s(Girth),
+           family = Gamma(link = log), 
+           data = trees, 
+           gamma = 1.4)
+
+ct2 %>% broom::tidy()
+ct3 %>% broom::tidy()
+ct4 %>% broom::tidy()
+
+plot(ct2, residuals = TRUE)
+plot(ct3, residuals = TRUE)
+plot(ct4, residuals = TRUE)
+```
+
+## 4.6.2
+```{r}
+ct5 <- gam(Volume ~ s(Height, Girth, k = 25),
+           family = Gamma(link = log), 
+           data = trees)
+ct5 %>% broom::tidy()
+
+ct6 <- gam(Volume ~ te(Height, Girth, k = 5),
+           family = Gamma(link = log), 
+           data = trees)
+ct6 %>% broom::tidy()
+
+plot(ct5, too.far = 0.15)
+plot(ct6, too.far = 0.15)
+```
+
+
+## 4.6.3
+```{r}
+gam(Volume ~ Height + s(Girth),
+    family = Gamma(link = log), 
+    data = trees)
+
+trees$Hclass <- 
+  factor(floor(trees$Height / 10) - 5,
+         labels = c("small", "medium", "large"))
+
+ct7 <- gam(Volume ~ Hclass + s(Girth),
+           family = Gamma(link = log), 
+           data = trees)
+
+par(mfrow = c(1, 2))
+plot(ct7, all.terms = TRUE)
+anova(ct7)
+AIC(ct7)
+summary(ct7)
+
+ct7 %>% broom::tidy()
+ct7 %>% broom::augment()
+ct7 %>% broom::glance()
+```
+
+
+## Q.1
+```{r}
+set.seed(1)
+x <- sort(runif(40) * 10)^.5
+y <- sort(runif(40))^0.1
+
+par(mfrow = c(1, 1))
+## polynomial fits ...
+xx <- seq(min(x), max(x), length = 200)
+plot(x, y)
+
+b <- lm(y ~ poly(x, 5))
+lines(xx, predict(b, data.frame(x = xx)))
+
+b <- lm(y ~ poly(x, 10))
+lines(xx, predict(b, data.frame(x = xx)), col = 2)
+
+## spline fits ...
+sb <- function(x, xk) {
+  abs(x - xk)^3
+}
+
+q <- 11
+xk <- ((1:(q - 2) / (q - 1)) * 10)^.5
+
+## lazy person's formula construction ...
+form <- paste("sb(x, xk[", 1:(q - 2), "])", sep = "", collapse = "+")
+form <- paste("y~x+", form)
+
+b <- lm(formula(form))
+lines(xx, predict(b, data.frame(x = xx)), col = 3)
+```
+
+
+## Q.2
+```{r}
+## x,y, and xx from previous question
+b1 <- lm(form)
+plot(x, y)
+lines(xx, predict(b1, data.frame(x = xx)), col = 4)
+
+X <- model.matrix(b1) 
+# extract model matrix
+beta <- solve(t(X) %*% X, t(X) %*% y, tol = 0)
+
+b1$coefficients <- beta 
+# trick for simple prediction
+
+lines(xx, predict(b1, data.frame(x = xx)), col = 5)
+## ... upping the basis dimension to 11 makes the
+## normal equations estimates perform very badly.
+```
+
+
+## Q.8 Additive model as a mixed model
+```{r}
+## from 4.2.1 and 4.3.1...
+tf <- function(x, xj, j) {
+  ## generate jth tent function 
+  ## from set defined by knots xj
+  dj <- xj * 0
+  dj[j] <- 1
+  approx(xj, dj, x)$y
+}
+
+tf.X <- function(x, xj) {
+  ## tent function basis matrix given data x
+  ## and knot sequence xj
+  nk <- length(xj)
+  n <- length(x)
+  X <- matrix(NA, n, nk)
+  for (j in 1:nk) X[ , j] <- tf(x, xj, j)
+  return(X)
+}
+
+tf.XD <- function(x, xk, cmx = NULL, m = 2) {
+  ## get X and D subject to constraint
+  nk <- length(xk)
+  X <- tf.X(x, xk)[ , -nk]                   
+  ## basis matrix
+  D <- diff(diag(nk), differences = m)[ , -nk] 
+  ## root penalty
+  
+  if (is.null(cmx)) cmx <- colMeans(X)
+  ## return an array obtained from 
+  ## an input array by sweeping out 
+  ## a summary statistic
+  X <- sweep(X, 2, cmx)        
+  ## subtract cmx from columns
+  
+  return(list(X = X, D = D, cmx = cmx))
+}
+```
+
+## Q.8 Solution code...
+### a)
+
+```{r}
+XZmixed <- function(x, xk = NULL, k = 10, sep = TRUE) {
+  ## Get re-parameterized model matrix/matrices...
+  if (is.null(xk)) xk <- seq(min(x), max(x), length = k)
+  
+  xd <- tf.XD(x, xk)
+  D <- rbind(0, xd$D)
+  D[1, 1] <- 1
+  X <- t(solve(t(D), t(xd$X)))
+  
+  if (sep) {
+    list(X = X[, 1, drop = FALSE], Z = X[, -1], xk = xk)
+  } else {
+    list(X = X, xk = xk)
+  }
+} ## XZmixed
+```
+
+### b)
+## get components of smooths for Height and Girth...
+
+```{r}
+xh <- XZmixed(trees$Height)
+xg <- XZmixed(trees$Girth)
+
+## Fit as mixed model...
+X <- cbind(1, xh$X, xg$X)
+Zg <- xg$Z
+Zh <- xh$Z
+g1 <- g <- factor(rep(1, nrow(X)))
+vol <- trees$Volume
+b <- lme(vol ~ X - 1, 
+         random = list(g = pdIdent(~ Zh - 1),
+                       g1 = pdIdent(~ Zg - 1)))
+```
+
+
+### c)
+```{r}
+## raw vs. fitted and residual plot
+par(mfrow = c(1, 2))
+plot(fitted(b), vol)
+rsd <- vol - fitted(b)
+plot(fitted(b), rsd)
+```
+
+```{r}
+## extract coefs for each smooth...
+bh <- as.numeric(coef(b)[c(2, 4:11)]) ## coefs for s(Height)
+bg <- as.numeric(coef(b)[c(3, 12:19)]) ## coefs for s(Height)
+```
+
+```{r}
+## get smooth specific prediction matrices...
+Xh <- XZmixed(trees$Height, xk = xh$xk, sep = FALSE)$X
+Xg <- XZmixed(trees$Girth, xk = xg$xk, sep = FALSE)$X
+```
+
+
+### d)
+```{r}
+## plot smooths over partial residuals...
+sh <- Xh %*% bh
+sg <- Xg %*% bg
+
+par(mfrow = c(1, 2))
+plot(trees$Girth, sg + rsd,
+  pch = 19, col = "grey",
+  xlab = "Girth", ylab = "s(Girth)")
+
+lines(trees$Girth, sg)
+
+plot(trees$Height, sh + rsd,
+  pch = 19, col = "grey",
+  xlab = "Height", ylab = "s(Height)")
+
+lines(trees$Height, sh)
+```
+
+
+## Q.9 Generalized version of 8 by PQL
+## a)
+
+gamm.fit <- function(y,X,Zh,Zg) {
+## gamma error log link 2 term gam fit via PQL...
+  eta <- log(y) ## get initial eta
+  g <- g1 <- factor(rep(1,nrow(X)))
+  not.converged <- TRUE
+  old.reml <- 1e100 ## don't converge immediately
+  while (not.converged) {
+    mu <- exp(eta)  ## current mu estimate  
+    z <- (y - mu)/mu + eta ## pseudodata
+    fit <- lme(z~X-1,random=list(g=pdIdent(~Zh-1),g1=pdIdent(~Zg-1)))
+    if (abs(logLik(fit)-old.reml)<1e-5*abs(logLik(fit))) { 
+      not.converged <- FALSE
+    }
+    old.reml <- logLik(fit) 
+    eta <- fitted(fit) ## updated eta
+  }
+  fit
+} ## gamm.fit
+
+## b) re-using arguments from Q.8...
+m <- gamm.fit(vol,X,Zh,Zg)
+
+## c)
+rsd <- residuals(m)
+par(mfrow=c(1,2))
+plot(exp(fitted(m)),vol);abline(0,1)
+plot(fitted(m),rsd)
+
+## d)
+bh <- as.numeric(coef(m)[c(2,4:11)]) ## coefs for s(Height)
+bg <- as.numeric(coef(m)[c(3,12:19)]) ## coefs for s(Height)
+
+sh <- Xh%*%bh
+sg <- Xg%*%bg
+
+par(mfrow=c(1,2))
+plot(trees$Girth,sg+rsd,pch=19,col="grey",
+     xlab="Girth",ylab="s(Girth)")
+lines(trees$Girth,sg)
+plot(trees$Height,sh+rsd,pch=19,col="grey",
+     xlab="Height",ylab="s(Height)")
+lines(trees$Height,sh)
+
+
+```{r}
+library("mgcv")
+set.seed(555)
+N <- 200
+## X covariates as P
+P <- 4
+
+X <- matrix(rnorm(N * P), N, P)
+## set up the association structures
+f1 <- function(x) sin(pi * x)
+f2 <- function(x) 2 * x
+f3 <- function(x) 0.25 * x^3
+f4 <- function(x) cos(pi * x) * x
+
+## get the linear predictor
+eta <- 1 + f1(X[, 1]) + f2(X[, 2]) + f3(X[, 3]) + f4(X[, 4])
+## simulate gaussian outcomes
+y_p <- eta + rnorm(N, sd = 1)
+## simulate binary outcomes
+pr_y <- 1 / (1 + exp(-eta))
+
+y_b <- vapply(pr_y, 
+              function(x) {
+                sample(c(0, 1),
+                       size = 1,
+                       prob = c(1 - x, x))
+                },
+              numeric(1))
+
+## combine data into a dataframe
+df_fit <- data.frame(y_p = y_p, y_b = y_b, X)
+## set up basis type for all smooth terms
+bs <- "cr"
+## number of basis functions for all smooth terms
+K <- 20
+
+## fit the models on the Gaussian data
+fit_p_GCV <- gam(y_p ~ s(X1, bs = bs, k = K) + 
+                   s(X2, bs = bs, k = K) +
+                   s(X3, bs = bs, k = K) + 
+                   s(X4, bs = bs, k = K),
+                 family = poisson(), 
+                 method = "GCV.Cp", 
+                 data = df_fit)
+## The smoothing parameter estimation method. 
+## "GCV.Cp" to use GCV for unknown scale parameter and 
+##          Mallows' Cp/UBRE/AIC for known scale. 
+## "GACV.Cp" is equivalent, but using GACV in place of GCV. 
+## "REML" for REML estimation, including of unknown scale, 
+## "P-REML" for REML estimation, but using a Pearson estimate of the scale. 
+## "ML" and "P-ML" are similar, but using maximum likelihood in place of REML. 
+## 
+## Beyond the exponential family "REML" is the default, 
+## and the only other option is "ML".
+
+
+fit_p_REML <- gam(y_p ~ s(X1, bs = bs, k = K) + 
+                    s(X2, bs = bs, k = K) +
+                    s(X3, bs = bs, k = K) + 
+                    s(X4, bs = bs, k = K),
+                  family = gaussian(), 
+                  method = "REML", 
+                  data = df_fit)
+
+## fit the models on the binary data
+fit_b_GCV <- gam(y_b ~ s(X1, bs = bs, k = K) + 
+                   s(X2, bs = bs, k = K) +
+                   s(X3, bs = bs, k = K) + 
+                   s(X4, bs = bs, k = K),
+                 family = binomial(), 
+                 method = "GCV.Cp", 
+                 data = df_fit)
+
+fit_b_REML <- gam(y_b ~ s(X1, bs = bs, k = K) + 
+                    s(X2, bs = bs, k = K) +
+                    s(X3, bs = bs, k = K) + 
+                    s(X4, bs = bs, k = K),
+                  family = binomial(), 
+                  method = "REML", 
+                  data = df_fit)
+```
+
+```{r}
+par(mfrow=c(2,2))
+nx_pred <- 1000
+xind_pred <-
+  lapply(1:P, function(x){
+    rn_x <- range(X[,x])
+    seq(rn_x[1], rn_x[2], len=nx_pred)
+    })
+fn_ls <- list(f1, f2, f3, f4)
+
+for(p in 1:P){
+  plot(fit_p_GCV, select=p, shade=TRUE)
+  lines(xind_pred[[p]],
+        fn_ls[[p]](xind_pred[[p]]),
+        col='red',
+        lwd=2,
+        lty=2)
+}
+```
+
+```{r}
+xind_pred <- seq(-3, 3, len = 1000)
+df_pred <- data.frame(X1 = xind_pred, 
+                      X2 = xind_pred, 
+                      X3 = xind_pred, 
+                      X4 = xind_pred)
+head(df_pred)
+
+## get the predicted values at these values for each "type"
+yhat_g_REML <- predict(fit_p_REML, 
+                       newdata = df_pred, 
+                       type = "response", 
+                       se.fit = TRUE)
+etahat_g_REML <- predict(fit_p_REML, 
+                         newdata = df_pred, 
+                         type = "link", 
+                         se.fit = TRUE)
+smhat_g_REML <- predict(fit_p_REML, 
+                        newdata = df_pred, 
+                        type = "terms", 
+                        se.fit = TRUE)
+Phi_g_REML <- predict(fit_p_REML, 
+                      newdata = df_pred, 
+                      type = "lpmatrix", 
+                      se.fit = TRUE)
+
+broom::tidy(fit_p_REML)
+```
+
+```{r}
+str(yhat_g_REML)
+str(etahat_g_REML)
+str(smhat_g_REML)
+str(Phi_g_REML)
+```
+
+
+## simulation 
+
+```{r}
+library("mgcv")
+set.seed(555)
+N <- 200
+## X covariates as P
+P <- 4
+
+X <- matrix(rnorm(N * P), N, P)
+## set up the association structures
+f1 <- function(x) sin(pi * x)
+f2 <- function(x) 2 * x
+f3 <- function(x) 0.25 * x^3
+f4 <- function(x) cos(pi * x) * x
+
+## get the linear predictor
+eta <- 1 + f1(X[, 1]) + f2(X[, 2]) + f3(X[, 3]) + f4(X[, 4])
+## simulate gaussian outcomes
+y_e <- exp(eta)
+y_p <- rpois(N, y_e)
+
+## combine data into a dataframe
+df_fit <- data.frame(y_p = y_p, X)
+## set up basis type for all smooth terms
+bs <- "cr"
+## number of basis functions for all smooth terms
+K <- 20
+
+## fit the models on the Gaussian data
+fit_p_GCV <- gam(y_p ~ s(X1, bs = bs, k = K) + 
+                   s(X2, bs = bs, k = K) +
+                   s(X3, bs = bs, k = K) + 
+                   s(X4, bs = bs, k = K),
+                 family = poisson(), 
+                 method = "GCV.Cp", 
+                 data = df_fit)
+## The smoothing parameter estimation method. 
+## "GCV.Cp" to use GCV for unknown scale parameter and 
+##          Mallows' Cp/UBRE/AIC for known scale. 
+## "GACV.Cp" is equivalent, but using GACV in place of GCV. 
+## "REML" for REML estimation, including of unknown scale, 
+## "P-REML" for REML estimation, but using a Pearson estimate of the scale. 
+## "ML" and "P-ML" are similar, but using maximum likelihood in place of REML. 
+## 
+## Beyond the exponential family "REML" is the default, 
+## and the only other option is "ML".
+
+
+fit_p_REML <- gam(y_p ~ s(X1, bs = bs, k = K) + 
+                    s(X2, bs = bs, k = K) +
+                    s(X3, bs = bs, k = K) + 
+                    s(X4, bs = bs, k = K),
+                  family = poisson(), 
+                  method = "REML", 
+                  data = df_fit)
+
+broom::tidy(fit_p_REML)
+```
+
+```{r}
+par(mfrow=c(2,2))
+nx_pred <- 1000
+xind_pred <-
+  lapply(1:P, function(x){
+    rn_x <- range(X[,x])
+    seq(rn_x[1], rn_x[2], len=nx_pred)
+    })
+fn_ls <- list(f1, f2, f3, f4)
+
+for (p in 1:P) {
+  plot(fit_p_GCV, select = p, shade = TRUE)
+  lines(xind_pred[[p]],
+    fn_ls[[p]](xind_pred[[p]]),
+    col = "red",
+    lwd = 2,
+    lty = 2)
+}
+```
+
+```{r}
+xind_pred <- seq(-3, 3, len = 1000)
+df_pred <- data.frame(X1 = xind_pred, 
+                      X2 = xind_pred, 
+                      X3 = xind_pred, 
+                      X4 = xind_pred)
+head(df_pred)
+
+## get the predicted values at these values for each "type"
+?predict.bam
+
+yhat_p_REML <- predict(fit_p_REML, 
+                       newdata = df_pred, 
+                       type = "response", 
+                       se.fit = TRUE)
+etahat_p_REML <- predict(fit_p_REML, 
+                         newdata = df_pred, 
+                         type = "link", 
+                         se.fit = TRUE)
+smhat_p_REML <- predict(fit_p_REML, 
+                        newdata = df_pred, 
+                        type = "terms", 
+                        se.fit = TRUE)
+Phi_p_REML <- predict(fit_p_REML, 
+                      newdata = df_pred, 
+                      type = "lpmatrix", 
+                      se.fit = TRUE)
+
+broom::tidy(fit_g_REML)
+```
+
+```{r}
+str(yhat_p_REML)
+str(etahat_p_REML)
+str(smhat_p_REML)
+str(Phi_p_REML)
+```
+

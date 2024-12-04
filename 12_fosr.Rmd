@@ -1,0 +1,261 @@
+---
+title: "12_fosr"
+author: "Randy"
+date: "4/8/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+require(fda)
+require(refund)
+
+## the fRegress function in the fda package, 
+## set up a functional data object 
+## representing mean temperatures
+daybasis25 <-
+  ## fda::create.fourier.basis
+  create.fourier.basis(
+    rangeval = c(0, 365), 
+    nbasis= 25, 
+    axes = list("axesIntervals"))
+View(daybasis25)
+View(CanadianWeather)
+
+Temp.fd <- with(CanadianWeather, 
+                ## Smooth Data Using a Directly Specified 
+                ## Roughness Penalty
+                ## fda::smooth.basisPar Smooth (argvals, y) data 
+                ## with roughness penalty 
+                smooth.basisPar(day.5,
+                                dailyAv[ , , "Temperature.C"], 
+                                daybasis25)$fd)
+
+View(CanadianWeather[["dailyAv"]] %>% as.data.frame)
+View(Temp.fd)
+
+modmat <- cbind(1, model.matrix(~ factor(CanadianWeather$region) - 1))
+## stats::model.matrix construct design matrices
+## use model matrix to build the design matrix
+# model.matrix(~ factor(CanadianWeather$region) - 1) %>% View()
+# model.matrix(~ factor(CanadianWeather$region)) %>% View()
+View(modmat)
+
+constraints <- matrix(c(0, 1, 1, 1, 1), 1)
+
+olsmod <- 
+  ## Function-on-scalar regression
+  ## Fit linear regression 
+  ## with functional responses 
+  ## and scalar predictors, 
+  ## with efficient selection of 
+  ## optimal smoothing parameters.
+  refund::fosr(formula = NULL,
+               ## this has to be either 
+               ## an time matrix Y 
+               ## or a function data object fd 
+               ## from fda package
+               fdobj = Temp.fd, 
+               ## the model matrix, 
+               ## whose columns represent 
+               ## scalar predictors. 
+               ## Should ordinarily include 
+               ## a column of 1s.
+               X = modmat, 
+               ## a row vector or matrix of 
+               ## linear contrasts of 
+               ## the coefficient functions, 
+               ## to be constrained to equal zero.
+               con = constraints,
+               method = "OLS", 
+               ## smoothing parameter value. 
+               ## If NULL, the smoothing parameter(s) 
+               ## will be estimated. 
+               lambda = 100 * 10:30)
+
+glsmod <- 
+  refund::fosr(fdobj = Temp.fd, 
+               X = modmat, 
+               con = constraints,
+               method = "GLS")
+```
+
+```{r}
+View(olsmod)
+```
+
+
+```{r}
+par(mfrow = c(2, 5), 
+    mar = c(5, 2, 4, 1))
+
+plot(olsmod, 
+     split = 1, 
+     set.mfrow = FALSE, 
+     titles = c("OLS: Intercept", 
+                levels(factor(CanadianWeather$region))), 
+     ylab = "", 
+     xlab = "Day")
+plot(glsmod, 
+     split = 1, 
+     set.mfrow = FALSE, 
+     titles = c("GLS: Intercept", 
+                levels(factor(CanadianWeather$region))), 
+     ylab = "", 
+     xlab = "Day")
+```
+
+```{r}
+library(refund)
+fplot <- function(x, y, lty = 1,
+                  col = rgb(0, 0, 0, max(.1, sqrt(1 / nrow(y)))),
+                  lwd = .5, ...) {
+  if (missing(x)) {
+    if (missing(y)) {
+      stop("must specify at least one of 'x' and 'y'")
+    } else {
+      x <- 1L:NROW(y)
+    }
+  } else {
+    if (missing(y)) {
+      y <- t(x)
+      x <- 1L:NROW(y)
+    } else {
+      y <- t(y)
+    }
+  }
+  matplot(x, y, 
+          type = "l", 
+          lty = lty, 
+          col = col, 
+          lwd = lwd,
+          ...)
+}
+```
+
+
+```{r}
+set.seed(9312)
+data_ff <- pffrSim(scenario = c("int", "ff"), 
+                   n = 100)
+psi_st <- function(s, t) {
+  s * cos(pi * abs(s - t)) - .19
+  }
+s <- seq(0, 1, length = 40)
+t <- seq(0, 1, length = 60)
+
+## calculate the outer product of arrays
+psi_true <- outer(s, t, psi_st)
+par(mfrow = c(1, 2))
+fplot(s, data_ff$X1, xlab = "s", ylab = "", main = "X(s)")
+?fplot
+
+
+# highlight first three regressor functions X_i
+matlines(s, t(data_ff$X1[1:4, ]), 
+         col = 1, lwd = 2)
+fplot(t, 
+      attr(data_ff, "truth")$etaTerms$X1,
+      xlab = "t",
+      main = expression(integral(psi(t, s) * X(s) * ds)))
+
+matlines(t, 
+         t(attr(data_ff, "truth")$etaTerms$X1[1:4, ]),
+         col = 1, 
+         lwd = 2)
+
+
+m_ff <- pffr(Y ~ ff(X1), 
+             data = data_ff)
+View(m_ff)
+psi_plot <- plot(m_ff, 
+                 select = 2,
+                 pers = TRUE)[[2]]
+View(psi_plot)
+
+layout(t(1:2))
+# true psi surface
+# par(mar = c(0, 1, opar$mar[3], 1))
+# 
+# perspective plot
+persp(s, t, 
+      psi_true,
+      xlab = "s", 
+      ylab = "t", 
+      main = expression(psi(t, s)), 
+      phi = 40, 
+      theta = 30, 
+      ticktype = "detailed", 
+      zlab = "",
+      border = NA, 
+      col = "grey",
+      # zlim = range(beta_true),
+      shade = .7)
+
+## estimated psi surface
+persp(psi_plot$x, 
+      psi_plot$y, 
+      matrix(psi_plot$fit, 40, 40),
+      xlab = "s", 
+      ylab = "t",
+      phi = 40, 
+      theta = 30, 
+      ticktype = "detailed", 
+      main = expression(hat(psi)(t, s)), 
+      # zlim = range(beta_true), 
+      zlab = "",
+      border = NA, 
+      col = "grey", 
+      shade = .7)
+```
+
+
+```{r}
+
+layout(t(1:3))
+fplot(t, 
+      data_ff$Y,
+      xlab = "t", 
+      ylab = "", 
+      main = "Observations",
+      ylim = range(data_ff$Y))
+
+matlines(t, t(data_ff$Y[1:4, ]), 
+         col = 1:4, 
+         lty = 1:4, 
+         lwd = 2)
+fplot(t, 
+      attr(data_ff, "truth")$eta,
+      xlab = "t", 
+      ylab = "", 
+      main = "True predictor", 
+      ylim = range(data_ff$Y))
+
+matlines(t, 
+         t(attr(data_ff, "truth")$eta[1:4, ]),
+         col = 1:4, 
+         lty = 1:4, 
+         lwd = 2)
+
+fplot(t, 
+      fitted(m_ff),
+      xlab = "t", 
+      ylab = "", 
+      main = "Estimates",
+      ylim = range(data_ff$Y))
+
+matlines(t, 
+         t(fitted(m_ff)[1:4, ]), 
+         col = 1, 
+         lty = 1:4, 
+         lwd = 2)
+
+```
+
+
+
+

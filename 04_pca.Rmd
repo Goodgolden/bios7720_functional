@@ -1,0 +1,721 @@
+---
+title: "04_pca"
+author: "Randy"
+date: "3/18/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+set.seed(100)
+N <- 100 
+## number of samples
+p <- 2 
+## number of predictors to simulate
+mu_vec <- c(2, 4) 
+## vector of means
+sd_vec <- c(2, 2) 
+## vector of standard deviations
+rho_mat <- matrix(0.9, p, p) 
+rho_mat
+## correlation matrix
+diag(rho_mat) <- 1
+Sigma_mat <- tcrossprod(sd_vec) * rho_mat 
+## variance/covariance matrix
+Sigma_mat
+
+## simulate the data ----------------------------------
+## These functions provide the density function 
+## and a random number generator 
+## for the multivariate normal distribution 
+## with mean equal to mean and covariance matrix sigma.
+X <- mvtnorm::rmvnorm(N, mean = mu_vec, 
+                      sigma = Sigma_mat, 
+                      method = "svd")
+
+## multivariate normal ---------------------------------------------
+?mvtnorm::rmvnorm
+
+## column center the data
+col_mns <- colMeans(X)
+## Return an array obtained from 
+## an input array by sweeping out 
+## a summary statistic.
+X_cn <- sweep(X, MARGIN = 2, 
+              STATS = col_mns, 
+              FUN = "-")
+X_cn
+
+## do pca using stats::prcomp()
+fit_pca <- 
+  stats::prcomp(X, center = TRUE, 
+                ## whether to rescale the outcomes
+                ## the rescale might cause the xi and lambda change
+                scale = FALSE)
+fit_pca$scale
+fit_pca$rotation
+
+summary(fit_pca)
+plot(fit_pca$x)
+plot(fit_pca$x - fit_pca$center)
+str(fit_pca)
+```
+
+```{r}
+set.seed(982734)
+N <- 1000 
+## number of samples
+p <- 500 
+## number of predictors to simulate
+mu_vec <- rep(0, p) 
+## vector of means
+sd_vec <- sqrt(1:p) 
+## vector of standard deviations
+rho_mat <- matrix(0.9, p, p) 
+## correlation matrix
+diag(rho_mat) <- 1
+Sigma_mat <- tcrossprod(sd_vec) * rho_mat 
+## variance/covariance matrix
+## simulate the data
+X <- mvtnorm::rmvnorm(N, mean = mu_vec, 
+                      sigma = Sigma_mat, 
+                      method = "svd")
+```
+
+
+```{r prcomp}
+## do pca using stats::prcomp() ---------------------------------
+pca_fit <- stats::prcomp(X, center = TRUE)
+vars_pca <- (pca_fit$sdev)^2
+dirs_pca <- pca_fit$rotation
+str(pca_fit)
+```
+
+```{r eigen}
+## pca eigen decomposition  -------------------------
+X_mn <- colMeans(X)
+X_cn <- sweep(X, MARGIN = 2, 
+              STATS = X_mn, 
+              FUN = "-")
+Sigma_hat <- crossprod(X_cn) / (N - 1)
+eigen_fit <- eigen(Sigma_hat)
+## eigen provides two outcomes the eigen value and vector
+eigen_fit$values[1]/sum(eigen_fit$values)
+
+## sort by variance
+inx_srt <- order(eigen_fit$values, 
+                 decreasing = TRUE)
+## do you have to do this? inx_srt
+dirs_eigen <- eigen_fit$vectors[inx_srt, ]
+vars_eigen <- eigen_fit$values[inx_srt]
+```
+
+```{r svd}
+## svd decomposition covariance matrix -------------------------
+svd_fit <- svd(X_cn)
+## sort by variance
+inx_srt <- order(svd_fit$d, decreasing = TRUE)
+## do pca using singular value decomposition of X
+dirs_svd <- svd_fit$v[inx_srt,]
+vars_svd <- svd_fit$d[inx_srt]^2/(N-1)
+```
+
+
+```{r}
+Ks <- c(1, 50, 100, 500)
+ests_k <- vector("list", length(Ks))
+for (k in seq_along(Ks)) {
+  ests_k[[k]] <- pca_fit$x[, 1:Ks[k]] %*% 
+    t(pca_fit$rotation[, 1:Ks[k]])
+}
+(mse_k <- vapply(ests_k, 
+                 function(x) mean((x - X_cn)^2), 
+                 numeric(1)))
+```
+
+estimation approaches
+* smoothing the eigen-functions raw data 
+* data smoothing
+* covariance smoothing
+* maximum likelihood smoothing
+
+packages:
+* refund 
+* face
+* fdapace
+* fpca
+
+
+```{r}
+?refund::fpca.face
+```
+
+
+```{r}
+library("tidyverse")
+library("here")
+library("refund") ## fpca
+## load the data
+df <- here::here("NHANES_AC_processed.rds") %>%
+  read_rds()
+## subset to "good" days of data
+df <- df %>%
+filter(good_day %in% 1)
+## get a matrix of activity counts
+X <- as.matrix(df[,paste0("MIN",1:1440)])
+## impute 0s for the few NA values
+X[is.na(X)] <- 0
+## log transform
+lX <- log(1 + X)
+
+# ?fpca.face
+fit_fpca <- fpca.face(Y = lX, 
+                      pve = 0.95, 
+                      knots = 30)
+View(fit_fpca)
+```
+
+
+```{r fig.height=5, fig.width=10}
+## smoothing the covariance matrix from the raw data
+inx_cov_samp <- sample(1:nrow(lX), 
+                       size = 500, 
+                       replace = FALSE)
+cov_raw <- cov(lX[inx_cov_samp, ])
+cor_raw <- cov2cor(cov_raw)
+
+cov_fpca <- fit_fpca$efunctions %*% 
+  diag(fit_fpca$evalues) %*% 
+  t(fit_fpca$efunction)
+cor_fpca <- cov2cor(cov_fpca)
+# View(cov_fpca)
+# View(cor_fpca)
+
+tind <- seq(0, 1, len = 1440)
+df_plt <- data.frame(
+  cor_raw = as.vector(cor_raw),
+  cor_fpca = as.vector(cor_fpca),
+  s = rep(tind, length(tind)),
+  u = rep(tind, each = length(tind)))
+
+plt_cov <- df_plt %>%
+  pivot_longer(cols = c("cor_raw", "cor_fpca")) %>%
+  mutate(name = factor(name, 
+                       levels = c("cor_raw", "cor_fpca"), 
+                       labels = c("Raw", "fPCA"))) %>%
+  ggplot() +
+  geom_raster(aes(s, u, fill = value)) +
+  facet_grid(~name) +
+  scale_fill_gradientn(colours = c("red", "white", "blue")) +
+  theme_classic(base_size = 18)
+plt_cov
+```
+
+
+
+```{r}
+## "Semiparametric Regression with R"
+library(HRW)
+data(ozoneSub)
+library(mgcv)
+fitOzoneThinPlate <- 
+  gam(ozone ~ s(longitude, latitude, bs = "tp", k = 100),
+      data = ozoneSub, 
+      method = "REML")
+
+fitOzoneTensProd <-
+  gam(ozone ~ te(longitude, latitude),
+    ## other bases can be specified. For example, te(longitude,
+    ## latitude, bs = c("ps","cr")) specifies
+    ## a tensor product spline with
+    ## a Pspline basis for the first variable
+    ## and a cubic regression spline basis
+    ## for the second variable.
+    data = ozoneSub,
+    method = "REML")
+```
+
+
+```{r fig.height=10, fig.width=10}
+walk(1:4, ~plot(fitOzoneThinPlate,
+              scheme = .x,
+              hcolors = terrain.colors(1000),
+              main = "",
+              bty = "l",
+              cex.lab = 1,
+              cex.axis = 1,
+              xlab = "degrees longitude",
+              ylab = "degrees latitude"))
+```
+
+
+
+```{r}
+plot(fitOzoneThinPlate,
+    scheme = 2,
+    ## shading indicates the height of the estimate 
+    ## using the terrain.colors() color 
+    hcolors = terrain.colors(1000),
+    main = "", 
+    bty = "l", 
+    cex.lab = 1, 
+    cex.axis = 1,
+    xlab = "degrees longitude",
+    ylab = "degrees latitude")
+points(ozoneSub$longitude,
+      ozoneSub$latitude,
+      col = "dodgerblue")
+fields::US(add = TRUE, lwd = 2)
+cityNames <- c("Chicago", "Indianapolis", "Milwaukee", "St Louis")
+cityLonLatMat <- rbind(c(-87.6298, 41.8781), 
+                       c(-86.1581, 39.7694),
+                       c(-87.9065, 43.0389),
+                       c(-90.1994, 38.6270))
+for (iCity in 1:length(cityNames)) {
+  points(cityLonLatMat[iCity, 1], 
+        cityLonLatMat[iCity, 2],
+        col = "navy", 
+        pch = 16)
+  text(cityLonLatMat[iCity, 1] + 0.15,
+       cityLonLatMat[iCity, 2],
+       cityNames[iCity],
+       adj = 0,
+       cex = 1.8)
+ }
+```
+
+
+```{r}
+check <- mgcv::gam.check(fitOzoneThinPlate,cex.lab = 1.5,cex.main = 1.5)
+## the k-index diagnostic is the ratio of 
+## two estimates of the residual variance. 
+## These diagnostics suggest that 
+## the default choice of k for the thin plate spline, 
+## which is 30 here, might be too low. 
+## An application of gam.check() to the tensor product fit 
+## also indicates that the default choice of 
+## the number of basis functions (25, 5 for each variable) is also too low. 
+```
+
+```{r}
+## the function chull() for convex hull determination and 
+## the HRW ackage function pointsInPoly() for determining 
+## which points are inside the convex hull.
+
+library(HRW) 
+demo(ozoneDisplayConvHull, package = "HRW")
+here::here(system.file("demo", "ozoneDisplayConvHull.R", package = "HRW"))
+
+
+fitOzoneThinPlate2 <- gam(ozone ~ s(longitude, latitude,
+                                    bs = "tp", k = 60),
+                          data = ozoneSub,
+                          method = "REML")
+
+# Set up 201 by 201 plotting mesh:
+
+ngrid <- 201
+lonGrid <- seq(min(ozoneSub$longitude),
+               max(ozoneSub$longitude),
+               length = ngrid)
+latGrid <- seq(min(ozoneSub$latitude),
+               max(ozoneSub$latitude),
+               length = ngrid)
+lonlatMesh <- expand.grid(lonGrid, latGrid)
+names(lonlatMesh) <- c("longitude", "latitude")
+
+# Obtain the fitted surface over the mesh:
+
+fitMesh <- matrix(predict(fitOzoneThinPlate2,
+  newdata = lonlatMesh
+), ngrid, ngrid)
+
+# Determine the convex hull of the longitude/latitude
+# data and switch off pixels (by setting to NA) that
+# are outside the convex hull:
+
+chullInds <- chull(ozoneSub$longitude, ozoneSub$latitude)
+chullInds <- c(chullInds, chullInds[1])
+ozoneBdry <- cbind(
+  ozoneSub$longitude,
+  ozoneSub$latitude
+)[chullInds, ]
+outInds <- (1:ngrid^2)[pointsInPoly(
+  lonlatMesh,
+  ozoneBdry
+) == FALSE]
+fitMesh[outInds] <- NA
+
+# Make the image plot of the convex hull-restricted surface:
+
+par(mai = c(1.02, 0.95, 0.1, 1.2))
+library(fields)
+image.plot(lonGrid, latGrid, fitMesh,
+  col = terrain.colors(1000),
+  xlab = "degrees longitude", ylab = "degrees latitude",
+  legend.args = list(
+    text = "ozone concentration",
+    cex = 1, adj = 0.8
+  ), axis.args = list(cex.axis = 1),
+  xlim = c(-94.103, -82.429),
+  ylim = c(36.408, 44.836), bty = "l",
+  cex.lab = 1, cex.axis = 1
+)
+lines(ozoneBdry, col = "navy")
+points(ozoneSub$longitude, ozoneSub$latitude,
+  col = "dodgerblue", cex = 0.5
+)
+
+# Add U.S.A. state borders for the region being displayed:
+
+US(add = TRUE)
+
+# Add points and names for 4 major cities in the region:
+
+cityNames <- c("Chicago", "Indianapolis", "Milwaukee", "St Louis")
+cityLonLatMat <- rbind(
+  c(-87.6298, 41.8781),
+  c(-86.1581, 39.7694),
+  c(-87.9065, 43.0389),
+  c(-90.1994, 38.6270)
+)
+for (icity in 1:length(cityNames))
+{
+  points(cityLonLatMat[icity, 1], cityLonLatMat[icity, 2],
+    col = "navy", pch = 16
+  )
+  text(cityLonLatMat[icity, 1] + 0.15, cityLonLatMat[icity, 2],
+    cityNames[icity],
+    adj = 0, cex = 1
+  )
+}
+
+data(ozoneSub)
+myOzoneBdry <- createBoundary(ozoneSub$longitude, 
+                              ozoneSub$latitude)
+write.table(myOzoneBdry,
+            "myOzoneBdry.txt",
+            col.names = FALSE,
+            row.names = FALSE)
+```
+
+
+
+```{r}
+library(fields)
+library(HRW) 
+library(mgcv)
+
+data(SydneyRealEstate)
+logSalePrice <- SydneyRealEstate$logSalePrice 
+longitude <- SydneyRealEstate$longitude
+latitude <- SydneyRealEstate$latitude
+income <- SydneyRealEstate$income
+PM10 <- SydneyRealEstate$PM10
+
+fitGeoadd <- gam(logSalePrice ~ s(income, k = 15) + 
+                   s(PM10) + 
+                   s(longitude, latitude, bs = "tp", k = 80),
+                 method = "REML",
+                 data = SydneyRealEstate)
+
+## the contour plot showing the effect of 
+## (longitude, latitude) produced by plotting 
+## the gam object did not show detail adequately
+plot(fitGeoadd, 
+     hcolors = terrain.colors(1000),
+     scheme = 1)
+```
+
+
+```{r fig.height=10, fig.width=10}
+vis.gam(fitGeoadd,c("longitude", "latitude"), 
+        color = "terrain",
+        n.grid = 60,
+        theta = 320,
+        phi = 35)
+## demo(SydneyDisplaySophis,package = "HRW")
+```
+
+
+```{r}
+## Set up a plotting mesh:
+ngrid <- 201
+longrid <- seq(150.5, 151.35, length = ngrid)
+latgrid <- seq(-34.2, -33.52, length = ngrid)
+lonlatMesh <- as.matrix(expand.grid(longrid, latgrid))
+lonlatMesh <- as.data.frame(lonlatMesh)
+lonlatMeshPlus <- data.frame(PM10 = mean(PM10),
+                             income = mean(income),
+                             lonlatMesh)
+
+names(lonlatMeshPlus) <- c("PM10",
+                           "income",
+                           "longitude",
+                           "latitude")
+fitmesh <- predict(fitGeoadd,
+                   lonlatMeshPlus)
+data(SydneyRealEstateBdry)
+# Switch off the pixels outside the boundary polygon:
+
+outInds <- (1:ngrid^2)[pointsInPoly(lonlatMesh,  
+                                    SydneyRealEstateBdry) == FALSE]
+fitmesh[outInds] <- NA
+fitmesh <- matrix(fitmesh, ngrid, ngrid)
+
+# Do the image plot with restriction to the polygon:
+image.plot(longrid, latgrid, fitmesh,
+  bty = "l",
+  xlab = "degrees longitude",
+  ylab = "degrees latitude", col = terrain.colors(1000),
+  legend.args = list(
+    text = "effect on mean log(sale price)",
+    cex = 1.5, adj = 0.8
+  ), axis.args = list(cex.axis = 1.5),
+  cex.lab = 1.5, cex.axis = 1.5,
+  xlim = c(150.6, 151.45), ylim = c(-34.15, -33.55)
+)
+lines(SydneyRealEstateBdry, lwd = 2)
+
+# Add locations and names of 15 Sydney suburbs:
+
+suburbNames <- c(
+  "Blacktown", "Campbelltown", "Coogee",
+  "Cronulla", "Dee Why", "Gordon",
+  "Hornsby", "Hunter's Hill", "Hurstville",
+  "Liverpool", "Palm Beach", "Parramatta",
+  "Penrith", "Strathfield", "Vaucluse")
+
+suburbsLonLatMat <- rbind(
+  c(150.9063, -33.7710),
+  c(150.8142, -34.0650), c(151.2555, -33.9190),
+  c(151.1522, -34.0574), c(151.2854, -33.7544),
+  c(151.1492, -33.7573), c(151.0990, -33.7049),
+  c(151.1437, -33.8337), c(151.1000, -33.9667),
+  c(150.9231, -33.9209), c(151.3217, -33.6011),
+  c(151.0011, -33.8150), c(150.7000, -33.7500),
+  c(151.0831, -33.8808), c(151.2712, -33.8558)
+)
+for (isub in 1:nrow(suburbsLonLatMat))
+{
+  points(suburbsLonLatMat[isub, 1], suburbsLonLatMat[isub, 2],
+    col = "navy", pch = 16
+  )
+  text(suburbsLonLatMat[isub, 1] + 0.01,
+    suburbsLonLatMat[isub, 2],
+    suburbNames[isub],
+    adj = 0, cex = 0.9
+  )
+}
+```
+
+
+```{r}
+gam.check(fitGeoadd,cex.lab = 1.5,cex.main = 1.5)
+```
+
+
+## 5.6.1
+The following code computes 
+(1) the sample covariance matrix SigmaSamp of the spectral data; 
+(2) the eigendecomposition eigenSigmaSamp of SigmaSamp using the function eigen(); 
+(3) a tensor product smooth fitTE of SigmaSamp using gam(); 
+(4) a FACE smooth fitFACE of SigmaSamp: The objective here is 
+to compare the computation of the eigenvalues 
+and smoothed eigenvectors of the sample covariance 
+using the functions eigen() and gam() with the same
+computation using fpca.face(). 
+
+We will see that fpca.face() is much faster and much more accurate.
+
+```{r}
+## We also assume that the eigenvectors have been
+## normalized to have length one, 
+## that is, ψk = 1 for k = 1, . . . , d. 
+## The first eigenvector, ψ1, is the direction 
+## of maximum variation of the data. 
+
+## FACE is a tensor product spline smoother 
+## with a special choice of penalty and an implementation 
+## that significantly speeds computations and 
+## reduces memory requirements in a number of ways.
+
+library(refund)
+data(gasoline)
+wavelength <- seq(900, 1700, by = 2)
+SigmaSamp <- cov(gasoline$NIR)
+eigenSigmaSamp <- eigen(SigmaSamp)
+mesh <- expand.grid(1:401, 1:401)
+library(mgcv)
+# fitTE <- gam(as.vector(SigmaSamp) ~ te(mesh[, 1], mesh[, 2], k = c(25, 25)))
+NIRcentered <- apply(gasoline$NIR, 2, 
+                     function(x) {x - mean(x, na.rm = TRUE)})
+# fitFACE <- fpca.face(NIRcentered, knots = 300, pve = 0.998)
+cumVariance <- cumsum(fitFACE$evalues)
+# cumVariance
+## refund::fpca.face
+## A fast implementation of the sandwich smoother (Xiao et al., 2013) 
+## for covariance matrix smoothing. 
+## Pooled generalized cross validation 
+## at the data level is used 
+## for selecting the smoothing parameter.
+
+save(fitTE, file = "04_pca_fitte.Rdata")
+save(fitFACE, file = "04_pca_fitface.Rdata")
+
+load("04_pca_fitte.Rdata")
+load("04_pca_fitface.Rdata")
+
+0.998 * cumVariance / cumVariance[9]
+fitFACE$evalues / cumVariance[9]
+```
+
+
+```{r}
+## fpca.face() had no trouble with 300 × 300 basis functions. 
+## FACE with 300 × 300 basis functions took about half a second, 
+## showing that FACE can speed computations 
+## by several orders of magnitude.
+
+plot(fitTE, 
+     hcolors = terrain.colors(200),
+     scheme = 1)
+# View(fitTE)
+# View(fitFACE)
+```
+
+We see that fpca.face() smooths the sample covariance
+matrix with little bias whereas the gam() result appears 
+to be seriously biased
+
+because the number of basis functions cannot be made large enough. 
+Of course, the bias is not known since the true covariance matrix is unknown, 
+but the large discrepancies between the estimate from gam() 
+and the sample covariance matrix (which is unbiased) suggest a large bias. 
+
+Eigenvalues are determined only up to the sign, 
+and in this case the gam() eigenvector needed 
+a sign change to be comparable to the other eigenvectors.
+
+```{r}
+SigmaTensProd <- matrix(fitTE$fitted.values, nrow = 401)
+eigenSigmaTensProd <- eigen(SigmaTensProd)
+plot(wavelength, 
+     eigenSigmaSamp$vectors[, 1],
+     type = "l",
+     col = "darkgreen", 
+     xlim = c(1600, 1700), 
+     bty = "l", 
+     cex.lab = 2,
+     cex.axis = 1.8, 
+     lwd = 2, 
+     xlab = "wavelength (nanometers)",
+     ylab = "1st eigenvector", 
+     ylim = c(-0.1, 0.4))
+
+lines(wavelength, 
+      fitFACE$efunctions[, 1],
+      col = "indianred3",
+      lwd = 2)
+lines(wavelength, 
+      ## Eigenvalues are determined only up 
+      ## to the sign, and in this case 
+      ## the gam() eigenvector needed 
+      ## a sign change to be comparable 
+      ## to the other eigenvectors
+      -eigenSigmaTensProd$vectors[, 1],
+      col = "blue",
+      lwd = 2)
+legend("topleft",
+       c("sample", "FACE", "gam()"),
+       lwd = 2,
+       col = c("darkgreen", "indianred3", "blue"), 
+       cex = 1.8)
+```
+
+## 5.7
+```{r fig.height=5, fig.width=5}
+library(HRW)
+library(mgcv)
+data(femSBMD)
+SBMDblack <- femSBMD[femSBMD$black == 1, ]
+fit <- gam(spnbmd ~ s(age), data = SBMDblack)
+SBMDblack$spnbmdCent <- residuals(fit)
+
+uniqueID <- unique(SBMDblack$idnum)
+covPointCloud <- NULL
+for (i in uniqueID)
+{
+  currSamp <- SBMDblack[SBMDblack$idnum == i, ]
+  for (j in 1:dim(currSamp)[1]) {
+    for (k in 1:dim(currSamp)[1]) {
+      covPointCloud <- rbind(
+        covPointCloud,
+        c(
+          currSamp$age[j], currSamp$age[k],
+          currSamp$spnbmdCent[j] * currSamp$spnbmdCent[k]
+        )
+      )
+    }
+  }
+}
+
+fitCov <- gam(covPointCloud[, 3] ~ s(
+  covPointCloud[, 1],
+  covPointCloud[, 2]
+), method = "REML")
+
+plot(fitCov, scheme = 2)
+```
+
+## 5.8.1
+
+The sandwich smoother uses a penalty 
+that has a tensor product form similar to 
+the tensor product form of the spline basis. 
+
+This compatibility between the penalty and the spline basis
+allows the two-dimensional smoother to be implemented 
+as two one-dimensional smoothers, 
+
+which reduces computational time considerably.
+
+```{r}
+library(mgcv)
+library(HRW)
+data(brainImage)
+imageData <- as.matrix(brainImage)
+mesh <- expand.grid(1:80, 1:37)
+mesh[, 1] <- mesh[, 1] / 80
+mesh[, 2] <- mesh[, 2] / 37
+fitThinPlate <- gam(as.vector(imageData) ~ s(mesh[, 1], mesh[, 2], k = 625))
+fitTensProd <- gam(as.vector(imageData) ~ te(mesh[, 1], mesh[, 2], k = c(35, 18)))
+```
+
+
+```{r fig.height=8, fig.width=10}
+plot(fitThinPlate, scheme = 2)
+plot(fitTensProd, scheme = 2)
+```
+
+```{r fig.height=8, fig.width=10}
+library(refund)
+knotsSS <- list(seq(0, 1, length = 50), 
+                seq(0, 1, length = 35))
+fitSS <- fbps(imageData, knots = knotsSS)
+View(fitSS)
+```
+
+
+
+
+
+
+
+
+
+

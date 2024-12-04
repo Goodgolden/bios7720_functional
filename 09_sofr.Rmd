@@ -1,0 +1,206 @@
+---
+title: "11_sofr"
+author: "Randy"
+date: "4/1/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# devtools::install_github("andrew-leroux/rnhanesdata")
+```
+
+```{r}
+library("here")
+library("readr")
+library("dplyr")
+data <- read_rds(here("NHANES_AC_processed.rds"))
+## create the functional predictor
+data0 <- data %>%
+  ## only consider good days of data 
+  ## and indiviudals age 50 or over
+  filter(good_day %in% 1, Age > 50)
+## get mortality data 
+## from the rnhanesdata package
+library("rnhanesdata")
+data_mort <- bind_rows(Mortality_2015_C, 
+                       Mortality_2015_D)
+# str(data_mort)
+# ??rnhanesdata
+```
+
+
+```{r}
+
+data1 <- left_join(data0, 
+            data_mort, 
+            by = "SEQN") %>%
+  mutate(mort_5yr = as.numeric(permth_exm / 12 <= 5 & mortstat %in% 1),
+         ## replace accidental deaths within 5 years as NA
+         mort_5yr = ifelse(mort_5yr == 1 & ucod_leading %in% "004", 
+                           NA, mort_5yr))
+
+## drop anyone missing mortality data 
+## or who had accidental deaths within 5 years
+
+library("refund")
+## extract just the activity count data
+Z <- log(as.matrix(data1[, paste0("MIN", 1:1440)]) + 1)
+Z[is.na(Z)] <- 0
+## average across days within participants (SEQN)
+uid <- unique(data1$SEQN) 
+# unique subject identifiers
+nid <- length(uid) 
+# number of participants
+Zmat <- matrix(NA, nid, 1440) 
+# empty container to store average profiles
+inx_ls <- lapply(uid, function(x) which(data1$SEQN %in% x)) 
+# list of indices
+
+for (i in seq_along(uid)) {
+  Zmat[i, ] <- colMeans(Z[inx_ls[[i]], , drop = FALSE])
+}
+
+## do fpca on the log(1 + AC)
+fpca_Z <- fpca.face(Y = Zmat, knots = 50)
+Zsm <- fpca_Z$Yhat
+```
+
+
+```{r}
+## Get a data frame for analysis 
+## which contains one row per participant
+df0 <- data1[!duplicated(data1$SEQN), ]
+## drop the activity count columns
+df <- df0 %>%
+  dplyr::select(-one_of(paste0("MIN", 1:1440)))
+## add in the activity count matrix 
+## using the AsIs class via I()
+## note!! 
+## be careful when working with dataframes 
+## which contain matrixes
+df$Zsm <- I(Zsm)
+df$Zraw <- I(Zmat)
+
+## clean up the workspace a bit
+rm(Zsm)
+rm(Zmat)
+rm(Z)
+
+str(df)
+## fit on a subset of minutes 
+## (could do all 1440, 
+## just long computation time)
+cols_regress <- seq(1, 1440, by = 10)
+fit_naive_raw <- gam(mort_5yr ~ df$Zraw[, cols_regress], 
+                     family = binomial, 
+                     data = df)
+fit_naive_sm <- gam(mort_5yr ~ df$Zsm[, cols_regress], 
+                    family = binomial, 
+                    data = df)
+```
+
+
+```{r}
+rm(list = ls())
+library(refund)
+library(ggplot2)
+library(dplyr)
+library(reshape2)
+```
+
+```{r}
+set.seed(9000)
+
+n <- 1000
+grid <- seq(0, 1, length = 101)
+beta1 <- sin(grid * 2 * pi)
+beta2 <- -dnorm(grid, mean = .2, sd = .03) + 
+  3 * dnorm(grid, mean = .5, sd = .04) + 
+  dnorm(grid, mean = .75, sd = .05)
+
+X <- matrix(0, nrow = n, ncol = length(grid))
+
+for (i2 in seq_along(1:n)) {
+  X[i2, ] <- X[i2, ] + rnorm(length(grid), 0, 1)
+  X[i2, ] <- X[i2, ] + runif(1, 0, 5)
+  X[i2, ] <- X[i2, ] + rnorm(1, 1, 0.2) * grid
+  for (j2 in 1:10) {
+    e <- rnorm(2, 0, 1 / j2^(2))
+    X[i2, ] <- X[i2, ] + e[1] * sin((2 * pi) * grid * j2)
+    X[i2, ] <- X[i2, ] + e[2] * cos((2 * pi) * grid * j2)
+  }
+}
+
+## in a mixed model formulation of 
+## the scalar function regression. 
+## The pfr function uses mixed model software 
+## in the mgcv package, 
+## specifically the gam function, 
+## to address smoothness penalization.
+
+Y <- X %*% beta2 * .01 + rnorm(n, 0, .4)
+## constructs a functional principal component regression
+fit.fpcr <- refund::pfr(Y ~ fpc(X))
+# without a penalty, use k= 3
+# for the first beta,
+# and 15 for the second
+# one can verify the efficacy
+# of these choices by
+# looking at the aic
+fit.lin <- refund::pfr(Y ~ lf(X, bs = "ps", k = 15, fx = TRUE))
+# "ps" stands for "penalized splines", 
+# fx= TRUE means no penalty is used
+fit.pfr <- refund::pfr(Y ~ lf(X, bs = "ps", k = 50))
+# if sp is not specified, 
+# data driven smoothing is used
+
+```
+
+
+```{r}
+coefs <- data.frame(
+  grid = grid,
+  fpcr = coef(fit.fpcr)$value,
+  basis = coef(fit.lin)$value,
+  penalized = coef(fit.pfr)$value,
+  truth = beta)
+
+coefs.m <- melt(coefs, 
+                id = "grid")
+colnames(coefs.m) <- c("grid", "Method", "Value")
+dev.new(width = 6, 
+        height = 3)
+ggplot(coefs.m, aes(x = grid, 
+                    y = Value, 
+                    color = Method, 
+                    group = Method), 
+       width = 12, 
+       height = 6) +
+  geom_path() +
+  theme_bw()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,158 @@
+---
+title: "02_exploratory"
+author: "Randy"
+date: "1/12/2021"
+output: html_document
+---
+# 2. Further topics in exploratory ananlysis of the functional data
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 2.1 Derivatives
+
+## 2.2 Penalized smoothing
+
+which imposes a penalty on functions that are too \wiggly."
+
+Using sufficiently large M changes the curves somewhat, 
+but they essentially look the same as the original data curves.
+
+1) GCV is invariant to rotations of
+the original regression problem 
+2) variance of feature vectors is “spread out”
+evenly across the transformed matrix X′
+
+```{r}
+# set up a saturated basis: as many basis
+# functions as observations
+nbasis = 365
+yearRng = c(0,365)
+daybasis = create.fourier.basis(yearRng, nbasis)
+logprecav = CanadianWeather$dailyAv[, , 'log10precip']
+dayprecfd <- with(CanadianWeather, smooth.basis(day.5,
+logprecav, daybasis,
+fdnames=list("Day", "Station", "log10(mm)"))$fd )
+for(i in 1:5){
+    plot(logprecav[,i],
+         axes=FALSE,
+         xlab="Day",
+         ylab="log10(mm)",
+         main=CanadianWeather$place[i])
+    lines(dayprecfd[i],col=2)
+    axisIntervals(1)
+    axis(2)
+    readline("Press <return to continue>")
+}
+```
+
+```{r}
+Lcoef = c(0,(2*pi/diff(yearRng))^2,0,1)
+harmaccelLfd = vec2Lfd(Lcoef, yearRng)
+
+loglam = 4:9
+nlam = length(loglam)
+dfsave = rep(NA,nlam)
+names(dfsave) = loglam
+gcvsave = dfsave
+
+for (ilam in 1:nlam) {
+    cat(paste('log10 lambda =', loglam[ilam], '\n'))
+    lambda = 10^loglam[ilam]
+    fdParobj = fdPar(daybasis, harmaccelLfd, lambda)
+    smoothlist = smooth.basis(day.5, 
+                              logprecav,
+                              fdParobj)
+    dfsave[ilam] = smoothlist$df
+    gcvsave[ilam] = sum(smoothlist$gcv)
+}
+
+plot(loglam, gcvsave, type='b', lwd=2)
+```
+
+
+```{r}
+lambda = 1e6
+fdParobj = fdPar(daybasis, 
+                 harmaccelLfd, 
+                 lambda)
+logprec.fit = smooth.basis(day.5, 
+                           logprecav, 
+                           fdParobj)
+logprec.fd = logprec.fit$fd
+fdnames = list("Day (July 1 to June 30)", 
+                "Weather Station" = CanadianWeather$place, 
+                "Log 10 Precipitation (mm)")
+logprec.fd$fdnames = fdnames
+
+
+# plot smoothed curves for the first five locations
+for(i in 1:5){
+    plot(logprecav[,i],
+         axes=FALSE,
+         xlab="Day",
+         ylab="log10(mm)",
+         main=CanadianWeather$place[i])
+    lines(dayprecfd[i],col=2)
+    axisIntervals(1)
+    axis(2)
+    lines(logprec.fd[i], lwd=3)
+    readline("Press <return to continue>")
+}
+
+```
+
+
+## 2.3 Curve alignment
+
+```{r}
+age=growth$age
+heightBasis=create.bspline.basis( c(1,18), 35, 6, age)
+heightPar=fdPar(heightBasis, 3, 10^(-0.5))
+heightSmooth=smooth.basis(age, growth$hgtf, heightPar)
+plot(heightSmooth, lwd=2, xlab="age", ylab="height (cm)")
+```
+
+
+```{r}
+accelUnreg = deriv.fd(heightSmooth$fd, 2)
+plot(accelUnreg[,1], lwd=2, 
+     xlab="Age", 
+     ylab="Acceleration",
+     ylim=c(-4,2))
+mean.accelUnreg=mean(accelUnreg)
+lines(mean.accelUnreg, lwd=4, col="black")
+```
+
+
+```{r}
+regList=register.fd(yfd=accelUnreg)
+accelReg=regList$regfd
+# $regfd extracts the registered functions
+plot(accelReg, xlab="Age", 
+     ylab="Acceleration",
+     ylim=c(-4,3))
+```
+
+
+```{r}
+warpFunctions=regList$warpfd
+# $warpfd extracts the warping functions
+APList=AmpPhaseDecomp(xfd=accelUnreg, 
+                      yfd=accelReg, 
+                      hfd=warpFunctions)
+
+str(APList)
+APList$RSQR
+# $RSQR extract proportion of 
+# the total variation 
+# due to phase variation
+APList$MS.amp
+APList$MS.pha 
+```
+
+
+
+
+
+

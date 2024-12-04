@@ -1,0 +1,284 @@
+---
+title: "00_intro"
+author: "Randy"
+date: "3/10/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# number of (X,Y) pairs to simulate
+N <- 10000
+# variance for Gaussian noise
+sig2_e <- 0.5
+# conditional mean of Y given X
+f <- function(x) sin(2 * pi * x)
+# simulate predictor X ~ Unif(-1,1)
+X <- runif(N, min = -1, max = 1)
+# simulate Y = f(X) + \epsilon
+Y <- f(X) + rnorm(N, mean = 0, sd = 0.5)
+```
+
+
+```{r}
+set.seed(100)
+N <- 1000
+p <- 10
+X <- cbind(1, matrix(rnorm(N * p), N, p))
+# View(X)
+seq(-1, 1, len = p + 1)
+Y <- X %*% seq(-1, 1, len = p + 1) + rnorm(N)
+# View(Y)
+
+# ?.lm.fit
+## Fitter Functions for Linear Models
+## These are the basic computing engines 
+## called by lm used to fit linear models.
+## These should usually not be used directly 
+## unless by experienced users. 
+## 
+## .lm.fit() is bare bone wrapper 
+## to the innermost QR-based C code, 
+## on which glm.fit and lsfit are based as well, 
+## for even more experienced users.
+
+## do ordinary cross validation
+system.time({
+  OCV_slow <-
+    vapply(1:N, function(x)
+      Y[x] - X[x, ] %*% (.lm.fit(X[-x, ], Y[-x])$coef),
+      numeric(1))
+  OCV_slow <- OCV_slow^2
+})
+
+system.time({
+  H <- X %*% solve(crossprod(X)) %*% t(X)
+  OCV_fast <- .lm.fit(X,Y)$residuals^2/(1-diag(H))^2
+})
+```
+
+```{r}
+all.equal(as.vector(OCV_fast), OCV_slow)
+```
+
+```{r}
+library("mgcv")
+set.seed(5520)
+N <- 100
+f <- function(x) sin(2 * pi * x)
+X <- runif(N, min = -1, max = 1)
+Y <- f(X) + rnorm(N, mean = 0, sd = 0.5)
+xind <- seq(0, 1, len = 100)
+
+## choose the lambda
+## choose a very large value of K
+## cross validation
+sm <- smoothCon(s(X, 
+                  ## a list of variables that are the covariates 
+                  ## this smooth is a function of 
+                  ## transformation depends on the value of data
+                  ## should be avoid 
+                  ## e.g. s(log(x)) is fine, 
+                  ## but s(I(x/sd(x))) is not 
+                  bs = "cr", k = 75), 
+                ## bs for panalized smoothing basis
+                ## tp for thin plate regression spline
+                ## cr for cubic regression spline
+                data = data.frame(X = X))
+?s
+## definning smooths in GAM formulae
+## Function used in definition of smooth terms 
+## within gam model formulae. 
+## The function does not evaluate a (spline) smooth 
+## - it exists purely to help set up 
+## a model using spline based smooths.
+
+str(sm)
+# View(sm)
+
+## penalization matrix
+S0 <- sm[[1]][["S"]]
+View(S0)
+```
+
+### selection of lambda using cross validation
+```{r}
+nlambda <- 1000
+## number of smoothing parameters to consider
+
+loglambda <- seq(-3, 20, len = nlambda)
+## sequence of log smoothing parameters
+
+Phi <- sm[[1]]$X
+## get the spline basis matrix
+## the design matrix
+
+phi_phi <- t(Phi) %*% Phi
+phi_prod <- crossprod(Phi)
+
+identical(phi_phi, phi_prod)
+
+S <- sm[[1]]$S[[1]]
+## get the "S" matrix
+
+MSE_CV <- rep(NA, nlambda)
+## empty container for storing CV-MSE
+
+?solve
+## Methods in Package Matrix for Function solve()
+## Methods for function solve to 
+## solve a linear system of equations, 
+## or equivalently, solve for X in
+## A X = B
+## where A is a square matrix, 
+## and X, B are matrices or vectors 
+## (which are treated as 1-column matrices), 
+## and the R syntax is
+## X <- solve(A,B)
+
+for (i in 1:nlambda) {
+  ## do the cross-validation
+  ## to get the inverse of Xt*X + lambda*S
+  ## the standard R function for matrix inverse is solve()
+  solution <- solve(crossprod(Phi) + exp(loglambda[i]) * S)
+  ## A is the influence hat matrix
+  A <- Phi %*% solution %*% t(Phi)
+  yhat <- A %*% Y
+  ## mean square error cross validation
+  MSE_CV[i] <- mean((yhat - Y)^2 / (1 - diag(A))^2)
+  return(MSE_CV)
+}
+
+# View(MSE_CV)
+```
+
+$$
+\frac {\partial PENSSE_{\lambda}} {\partial \xi} = 
+-2\pmb{\Phi^{\top} y} + 2(\pmb{\Phi^{\top}\Phi + 
+\lambda S})\pmb{\xi} \stackrel{set}{=} 0
+$$
+
+```{r}
+# get the estimated coefficient
+# for the optimal smoothing parameter
+lambda_min <- exp(loglambda[which.min(MSE_CV)])
+
+# lambda_min
+# which.min(MSE_CV)
+# loglambda[which.min(MSE_CV)]
+# View(MSE_CV)
+# View(loglambda)
+# ?which.min
+
+## Where is the Min() or Max() 
+## or first TRUE or FALSE ?
+## 
+## Determines the location, i.e., 
+## index of the (first) minimum or maximum 
+## of a numeric (or logical) vector.
+
+
+
+# get estimated spline coefficients for optimal lambda
+inverse <- solve(crossprod(Phi) + lambda_min * S)
+xi_hat <-  inverse %*% t(Phi) %*% Y
+
+# set of "X" values to estimate \hat{f} 
+# on (for plotting)
+xind_pred <- seq(-1, 1, len = 1000)
+
+# spline basis for associated with "xind_pred"
+Phi_hat <- PredictMat(sm[[1]], 
+                      data = data.frame(X = xind_pred))
+
+# estimated coefficient
+f_hat <- Phi_hat %*% xi_hat
+```
+
+
+```{r}
+plot(loglambda, MSE_CV, type = "l")
+plot(xind_pred, f_hat, type = "l")
+```
+
+
+```{r}
+library("mgcv")
+set.seed(-909)
+N <- 1000
+f <- function(x) log(1 + x^2)
+x <- rnorm(N, sd = 3)
+y <- f(x) + rnorm(N, mean = 0, sd = 0.5)
+## number of basis functions to use in fitting
+K <- 10
+## sequence of x values to predict on (for plotting)
+xind <- seq(min(x), max(x), len = 1000)
+## set up the unconstrained smooth, apply identifiability constraints
+sm <- smoothCon(s(x, bs = "cr", k = K), 
+                data = data.frame(x = x))[[1]]
+Phi <- sm$X
+
+Phi_mn <- colMeans(Phi)
+Phi_tilde <- sweep(Phi, 2, Phi_mn)
+Phi_tilde <- Phi_tilde[, -K]
+
+## fit using lm() -- no need to suppress the intercept
+fit_1 <- lm(y ~ Phi)
+## get the design matrix for our initial fit
+lp_1 <- PredictMat(sm, data = data.frame(x = xind))
+lp_1 <- cbind(1, sweep(lp_1, 2, Phi_mn)[, -K])
+## get the estimated function at our x-values for predicting
+fhat_1 <- lp_1 %*% coef(fit_1)
+```
+
+
+```{r}
+data(sleep)
+difference <- sleep$extra[11:20] - sleep$extra[1:10]
+
+Lp <- function(mu, x) {
+  n <- length(x)
+  mean((x - mu)**2)**(-n / 2)
+}
+
+mu <- seq(0, 3, length = 501)
+plot(mu, sapply(mu, Lp, x = difference), type = "l")
+
+## likelihood function
+L <- function(mu, s2, x) {
+  n <- length(x)
+  s2**(-n / 2) * exp(-sum((x - mu)**2) / 2 / s2)
+}
+
+sigma <- seq(0.5, 4, length = 501)
+mu <- seq(0, 3, length = 501)
+
+z <- matrix(nrow = length(mu), 
+            ncol = length(sigma))
+
+for (i in 1:length(mu)) {
+  for (j in 1:length(sigma)) {
+    z[i, j] <- L(mu[i], sigma[j], difference)
+  }
+}
+
+# shorter version
+# z <- outer(mu, sigma, Vectorize(function(a,b) L(a,b,difference)))
+
+## contour() creates a contour plot
+contour(mu, sigma, z, 
+        levels = c(1e-10, 1e-6, 2e-5,
+                   1e-4, 2e-4, 4e-4, 
+                   6e-4, 8e-4, 1e-3, 
+                   1.2e-3, 1.4e-3))
+```
+
+
+```{r}
+od <- options(digits = 3) # avoid too much visual clutter
+(z <- poly(c(1,10, 2, 9, 3, 8 ,4, 7, 5,6), 3, raw = T))
+```
+

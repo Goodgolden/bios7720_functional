@@ -1,0 +1,544 @@
+---
+title: "02_homework1_part2"
+author: "Randy"
+date: "3/28/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+library("mgcv")
+library("tidyverse")
+library("knitr")
+```
+
+
+# question7
+## 7a
+```{r}
+## each row is participate day
+## andrew's codes, works
+df <- read_rds("NHANES_AC_processed.rds")
+min_cols <- paste0("MIN", 1:1440)
+df$TAC <- rowSums(df[, min_cols], na.rm = TRUE)
+df_fit <-  df %>%
+  filter(good_day == 1, !is.na(Age)) %>%
+  group_by(SEQN) %>%
+  mutate(TAC_mn = mean(TAC))
+df_full <- df_fit
+df_ind <- df_fit[!duplicated(df_fit$SEQN), ] 
+```
+
+
+```{r fig.height=4, fig.width=5}
+fit_GCV <- 
+  mgcv::gam(TAC_mn ~ s(Age, k = 50, bs = "cr"), 
+            method = "GCV.Cp", 
+            data = df_ind)
+fit_GCV_augment <- broom::augment(fit_GCV)
+
+
+fit_GCV_full <- 
+  mgcv::gam(TAC_mn ~ s(Age, k = 50, bs = "cr"), 
+            method = "GCV.Cp", 
+            data = df_full)
+fit_GCV_full_augment <- broom::augment(fit_GCV_full)
+
+
+fit_GCV_augment %>%
+  mutate(upper = .fitted + 1.96 * .se.fit, 
+         lower = .fitted - 1.96 * .se.fit) %>%
+  ggplot() +
+  geom_point(aes(x = Age, y = TAC_mn), col = "grey", alpha = 0.1) +
+  geom_line(aes(x = Age, y = .fitted), col = "red") +
+  geom_line(aes(x = Age, y = upper), linetype = "dashed") +
+  geom_line(aes(x = Age, y = lower), linetype = "dashed") +
+  theme_classic()
+
+## loop over SEQN
+## s() contain sp argument
+## smoothing parameter use 
+
+fit_GCV_full_augment %>%
+  mutate(upper = .fitted + 1.96 * .se.fit, 
+         lower = .fitted - 1.96 * .se.fit) %>%
+  ggplot() +
+  geom_point(aes(x = Age, y = TAC_mn), col = "grey", alpha = 0.1) +
+  geom_line(aes(x = Age, y = .fitted), col = "red") +
+  geom_line(aes(x = Age, y = upper), linetype = "dashed") +
+  geom_line(aes(x = Age, y = lower), linetype = "dashed") +
+  theme_classic()
+
+
+fit_GCV_augment %>%
+  mutate(upper = .fitted + 1.96 * .se.fit, 
+         lower = .fitted - 1.96 * .se.fit) %>%
+  ggplot() +
+  # geom_point(aes(x = Age, y = TAC_mn), col = "grey", alpha = 0.1) +
+  geom_line(aes(x = Age, y = .fitted), col = "red") +
+  geom_line(aes(x = Age, y = upper), col = "red2", linetype = "dashed") +
+  geom_line(aes(x = Age, y = lower), col = "red2", linetype = "dashed") +
+  # geom_point(aes(x = Age, y = TAC_mn), col = "grey", alpha = 0.1) +
+  geom_line(data = fit_GCV_full_augment,
+            aes(x = Age, y = .fitted), col = "blue2") +
+  geom_line(data = fit_GCV_full_augment,
+            aes(x = Age, y = .fitted + 1.96 * .se.fit), 
+            col = "blue", linetype = "dashed") +
+  geom_line(data = fit_GCV_full_augment,
+            aes(x = Age, y = .fitted - 1.96 * .se.fit), 
+            col = "blue", linetype = "dashed") +
+  theme_classic()
+```
+
+The estimated trajectories for both datasets (blue for the full dataset and red for the one-per-row dataset) are pretty similar.
+There is a large inconsistency between two estimated trajectories in age range 20 to 55.
+Also the confidence interval for the trajectory is narrower 
+for the full dataset with repeated measures.
+Due to the repeated measurements, 
+the variance for the full dataset is smaller than the one-row-per-subject dataset.
+
+```{r}
+fit_GCV_augment %>% head()
+fit_GCV_full_augment %>% head()
+```
+
+## 7b
+```{r}
+## Sun Mar 28 14:21:16 2021 ------------------------------
+## NEVER use caret unless you get a server
+## what a garbage package
+# library(caret)
+# memory.limit()
+# memory.limit(size = 20000)
+# ## use caret::train to find the best model
+# cv_caret <- train(TAC_mn ~ Age, 
+#                   data = df_full, 
+#                   method = "bam", 
+#                   family = "gaussian",
+#                   trControl = trainControl(method = "LOOCV", 
+#                                           number = 1), 
+#                   tuneGrid = data.frame(method = "GCV.Cp"))
+#                     
+```
+
+
+```{r}
+# ## split the data into 10 folds
+# ## based on participant IDs
+# set.seed(189)
+# # get the unique participant IDs (SEQN) 
+# # and the total # of IDs
+# uid <- unique(df_full$SEQN)
+# nid <- length(uid)
+# # split the data into 
+# # 10 training and test splits
+# nfolds <- 10
+# uid_ls <- split(uid, 
+#           sample(rep(1:nfolds, 
+#           ceiling(nid / nfolds))[1:nid]))
+# # pre-calculate index for each fold
+# # not technically necessary, 
+# # but offers a slight speed up of the loop below
+# inx_i_ls <- lapply(uid_ls, function(x) which(df_full$SEQN %in% x))
+# ## set up smoothing parameters to loop over
+nlambda <- 100
+loglambda <- seq(-3, 20, len = nlambda)
+# ## empty vector for storing MSE
+# MSE <- rep(NA, nlambda)
+# ## set up progress bar to keep track of 
+# ## where we're at in the loop
+# pb <- txtProgressBar(min = 0, 
+#                      max = nlambda * nfolds, 
+#                      initial = 0, 
+#                      style = 3)
+# inx <- 0
+# ## loop over smoothing parameters
+# for (l in seq_along(loglambda)) {
+#   # set up empty container to store MSE for each fold
+#   # for the current candidate smoothing parameter
+#   MSE_l <- rep(NA, nfolds)
+#   ## loop over the 10 folds
+#   for (i in 1:nfolds) {
+#     ## fit the model leaving the "ith" fold out 
+#     ## (1/10 of participant IDs)
+#     ## using the current candidate smoothing parameter 
+#     ## (sp==exp(loglambda[l]))
+#     df_train_li <- df_full[-inx_i_ls[[i]], ]
+#     fit_li <- gam(TAC_mn ~ s(Age, bs = "cr", k = 30, sp = exp(loglambda[l])), 
+#                   data = df_train_li)
+# 
+#     # get MSE for the participant-days left out
+#     # note that one eror term per participant-day
+#     # this will implicitly upweighted participants 
+#     # with more "good" days of data
+#     df_test_li <- df_full[inx_i_ls[[i]], ]
+#     predict <- predict(fit_li, newdata = df_test_li, type = "response")
+#     MSE_l[i] <- sum((df_test_li$TAC_mn - predict)^2) / length(df_test_li)
+#     ## Mon Mar 29 21:15:43 2021 ------------------------------
+#     ## really love it but always forgot to use the progressbar
+#     ## update progress bar
+#     setTxtProgressBar(pb, inx)
+#     inx <- inx + 1
+#   }
+#   MSE[l] <- mean(MSE_l)
+# }
+# ## find "best" \lambda, fit the corresponding model
+# save(MSE, file = "question7_mse.Rdata")
+```
+
+```{r fig.height=4, fig.width=5}
+load("question7_mse.Rdata")
+plot(loglambda, MSE,
+     type = "l", 
+     xlab = expression(log(lambda)), 
+     main = "K forld cross validation")
+## get the optimal smooth parameter
+lambda_min <- loglambda[MSE == min(MSE)] %>% exp()
+## refit the model with this lambda
+fit_opt <- gam(TAC_mn ~ s(Age, bs = "cr", k = 50, sp = lambda_min), 
+               data = df_full) %>% 
+    broom::augment()
+fit_opt %>% 
+  mutate(upper = .fitted + 1.96 * .se.fit, 
+         lower = .fitted - 1.96 * .se.fit) %>%
+  ggplot() +
+  geom_point(aes(x = Age, y = TAC_mn), col = "grey", alpha = 0.1) +
+  geom_line(aes(x = Age, y = .fitted), col = "red") +
+  geom_line(aes(x = Age, y = upper), linetype = "dashed") +
+  geom_line(aes(x = Age, y = lower), linetype = "dashed") +
+  theme_classic()
+```
+
+```{r fig.height=4, fig.width=5}
+fit_GCV_augment %>%
+  mutate(upper = .fitted + 1.96 * .se.fit, 
+         lower = .fitted - 1.96 * .se.fit) %>%
+  ggplot() +
+  # geom_point(aes(x = Age, y = TAC_mn), col = "grey", alpha = 0.1) +
+  geom_line(aes(x = Age, y = .fitted), col = "red") +
+  geom_line(aes(x = Age, y = upper), col = "red2", linetype = "dashed") +
+  geom_line(aes(x = Age, y = lower), col = "red2", linetype = "dashed") +
+  # geom_point(aes(x = Age, y = TAC_mn), col = "grey", alpha = 0.1) +
+  geom_line(data = fit_GCV_full_augment,
+            aes(x = Age, y = .fitted), col = "blue2") +
+  geom_line(data = fit_GCV_full_augment,
+            aes(x = Age, y = .fitted + 1.96 * .se.fit), 
+            col = "blue", linetype = "dashed") +
+  geom_line(data = fit_GCV_full_augment,
+            aes(x = Age, y = .fitted - 1.96 * .se.fit), 
+            col = "blue", linetype = "dashed") +
+  geom_line(data = fit_opt,
+            aes(x = Age, y = .fitted), col = "green") +
+  geom_line(data = fit_opt,
+            aes(x = Age, y = .fitted + 1.96 * .se.fit), 
+            col = "darkgreen") +
+  geom_line(data = fit_opt,
+            aes(x = Age, y = .fitted - 1.96 * .se.fit), 
+            col = "darkgreen") +
+  theme_classic()
+```
+
+As shown in the graph above, the optimized model (green line) locates in between the full dataset (blue) and the one-per-row (red). The estimated trajectory confidence interval for the optimized dataset is as narrow as the the full dataset estimated trajectory interval. 
+
+Based on what we observed so far, I would hypothesis repeated measurement times are different for different ages, among different people, assuming each measurement provide exactly the same outcome. Probably there is an informative dropout or censor mechanism. The frequency of influential outcome measurement will be less common than the normal range outcomes. The overall mean for repeating will cause a buffering effect on the extram values. In another word, for the full dataset we can regard the outcome based on a weight mean on the frequency of repeats and there is a correlation between the repeat measurement times and the age. Picking out one row per person, might compromise the balancing effect of repeated measurements and introduce bias. For example the age group in 20 to 55 years old might contain several very low outcome value with low frequency repeats; in the full dataset, the normal distributed high frequency repeats will balance out the effect of influential points. However if we use the one-row-per-person dataset the influential sample contributed the same weight as the normal distributed samples. Hence large variance, skewness, and biased estimation might be produced with filtered dataset.
+
+
+
+# question8
+## 8a
+```{r}
+df <- readr::read_rds("NHANES_AC_processed.rds")
+min_cols <- paste0("MIN", 1:1440)
+df$TAC <- rowSums(df[, min_cols], na.rm = TRUE)
+df_ind <- df %>%
+  dplyr::select(-one_of(min_cols)) %>%
+  filter(good_day == 1, !is.na(Age)) %>%
+  group_by(SEQN) %>%
+  summarize(Age = Age[1], 
+            TAC_mn = mean(TAC)) 
+
+fit_GCV <- 
+  mgcv::gam(TAC_mn ~ s(Age, k = 50, bs = "cr"), 
+            method = "GCV.Cp", 
+            data = df_ind)
+fit_REML <- 
+  mgcv::gam(TAC_mn ~ s(Age, k = 50, bs = "cr"),
+            method = "REML", 
+            data = df_ind)
+```
+
+
+```{r fig.height=4, fig.width=5}
+fit_gcv_aug <- broom::augment(fit_GCV) 
+fit_reml_aug <- broom::augment(fit_REML)
+
+fit_gcv_aug %>%
+  mutate(upper = .fitted + 1.96 * .se.fit,
+         lower = .fitted - 1.96 * .se.fit) %>%
+  ggplot() +
+  geom_point(aes(Age, TAC_mn), color = "grey", alpha = 0.3) +
+  geom_line(aes(Age, .fitted), color = "darkred") +
+  geom_line(aes(Age, upper), color = "red", linetype = "dashed") +
+  geom_line(aes(Age, lower), color = "red", linetype = "dashed") +
+  theme_bw() + 
+  ggtitle("GCV")
+
+fit_reml_aug %>%
+  mutate(upper = .fitted + 1.96 * .se.fit,
+         lower = .fitted - 1.96 * .se.fit) %>%
+  ggplot() +
+  geom_point(aes(Age, TAC_mn), color = "grey", alpha = 0.3) +
+  geom_line(aes(Age, .fitted), color = "darkblue") +
+  geom_line(aes(Age, upper), color = "blue", linetype = "dashed") +
+  geom_line(aes(Age, lower), color = "blue", linetype = "dashed") +
+  theme_bw() +
+  ggtitle("REML")
+
+
+fit_gcv_aug %>%
+  mutate(upper = .fitted + 1.96 * .se.fit,
+         lower = .fitted - 1.96 * .se.fit) %>%
+  ggplot() +
+  # geom_point(aes(Age, TAC_mn), color = "grey", alpha = 0.3) +
+  geom_line(aes(Age, .fitted), color = "darkred") +
+  geom_line(aes(Age, upper), color = "red", linetype = "dashed") +
+  geom_line(aes(Age, lower), color = "red", linetype = "dashed") +
+  geom_line(data = fit_reml_aug, aes(Age, .fitted), color = "darkblue") +
+  geom_line(data = fit_reml_aug, aes(Age, .fitted + 1.96 * .se.fit), 
+            color = "blue", linetype = "dashed") +
+  geom_line(data = fit_reml_aug, aes(Age, .fitted - 1.96 * .se.fit), 
+            color = "blue", linetype = "dashed") +
+  theme_bw()
+
+# plot(fit_GCV, residuals = TRUE,
+#      shade = T, shade.col = 2)
+# plot(fit_REML, residuals = TRUE,
+#      shade = T, shade.col = 4)
+```
+
+## 8b
+```{r}
+# #' @description simulation on different numbers
+# take_sample <- 
+#   function(N, data = df_ind, index) {
+#     sub <- sample_n(data, N, replace = FALSE)
+#     
+#     fit_GCV <- gam(TAC_mn ~ s(Age, k = 50, bs = "cr"),
+#                    method = "GCV.Cp", 
+#                    data = sub)
+#     fit_REML <- gam(TAC_mn ~ s(Age, k = 50, bs = "cr"),
+#                     method = "REML", 
+#                     data = sub)
+# 
+#     # Tue Mar 16 19:57:42 2021 ------------------------------
+#     wig_gcv <- t(coef(fit_GCV)[-1]) %*% 
+#                fit_GCV$smooth[[1]]$S[[1]] %*% 
+#                coef(fit_GCV)[-1]
+#     wig_reml <- t(coef(fit_REML)[-1]) %*% 
+#                 fit_REML$smooth[[1]]$S[[1]] %*% 
+#                 coef(fit_REML)[-1]
+#     # Tue Mar 16 19:57:54 2021 ------------------------------
+#     
+#     cat("this is the ", index, "times\n")
+#     return(list(wig_gcv, wig_reml,
+#                 broom::augment(fit_GCV), 
+#                 broom::augment(fit_REML), 
+#                 fit_GCV, 
+#                 fit_REML))
+#   }
+# 
+# # ## save the results in a nested file
+# sample100 <- map(1:1000, ~take_sample(N = 100, index = .x))
+# save(sample100, file = "sample100.Rdata")
+# sample500 <- map(1:1000, ~take_sample(N = 500, index = .x))
+# save(sample500, file = "sample500.Rdata")
+# sample1k <- map(1:1000, ~take_sample(N = 1000, index = .x))
+# save(sample1k, file = "sample1000.Rdata")
+# sample2k <- map(1:1000, ~take_sample(N = 2000, index = .x))
+# save(sample2k, file = "sample2000.Rdata")
+```
+
+```{r fig.height=4, fig.width=10}
+# smooth100g <- smooth500g <- 
+#   smooth1kg <- smooth2kg <-
+#   smooth100r <- smooth500r <- 
+#   smooth1kr <- smooth2kr <- data.frame()
+## i will never do this again
+## just use rbind
+# for (i in seq_along(1:1000)) {
+#   smooth100g <- sample100[[i]][[1]] %>%
+#     rbind(smooth100g) 
+#   smooth100r <- sample100[[i]][[2]] %>%
+#     rbind(smooth100r)
+#   smooth500g <- sample500[[i]][[1]] %>%
+#     rbind(smooth500g)
+#   smooth500r <- sample500[[i]][[2]] %>%
+#     rbind(smooth500r)
+#   smooth1kg <- sample1k[[i]][[1]] %>%
+#     rbind(smooth1kg)
+#   smooth1kr <- sample1k[[i]][[2]] %>%
+#     rbind(smooth1kr)
+#   smooth2kg <- sample2k[[i]][[1]] %>%
+#     rbind(smooth2kg)
+#   smooth2kr <- sample2k[[i]][[2]] %>%
+#     rbind(smooth2kr)
+# } 
+# smooth100g <- smooth100g %>%
+#   mutate(S = 100,
+#          method = "GCV") %>%
+#   select(smooth = 1, everything())
+# smooth100r <- smooth100r %>%
+#   mutate(S = 100,
+#          method = "REML") %>%
+#   select(smooth = 1, everything())
+# smooth500g <- smooth500g %>%
+#   mutate(S = 500,
+#          method = "GCV") %>%
+#   select(smooth = 1, everything())
+# smooth500r <- smooth500r %>%
+#   mutate(S = 500,
+#          method = "REML") %>%
+#   select(smooth = 1, everything())
+# smooth1kg <- smooth1kg %>%
+#   mutate(S = 1000,
+#          method = "GCV") %>%
+#   select(smooth = 1, everything())
+# smooth1kr <- smooth1kr %>%
+#   mutate(S = 1000,
+#          method = "REML") %>%
+#   select(smooth = 1, everything())
+# smooth2kg <- smooth2kg %>%
+#   mutate(S = 2000,
+#          method = "GCV") %>%
+#   select(smooth = 1, everything())
+# smooth2kr <- smooth2kr %>%
+#   mutate(S = 2000,
+#          method = "REML") %>%
+#   select(smooth = 1, everything())
+# 
+# smooth_all <- rbind(smooth100g, smooth500g, smooth1kg, smooth2kg,
+#                     smooth100r, smooth500r, smooth1kr, smooth2kr) 
+# 
+# save(smooth_all, file = "question8b_smooth.Rdata")
+```
+
+```{r}
+load("question8b_smooth.Rdata")
+
+smooth_all %>%
+  group_by(method, S) %>%
+  summarize(smed = median(smooth),
+            smad = mad(smooth),
+            s25 = quantile(smooth, probs = 0.25),
+            s75 = quantile(smooth, probs = 0.75)) %>%
+  knitr::kable()
+
+smooth_all %>%
+  as.data.frame() %>% 
+  ggplot(aes(x = factor(S), y = log(smooth), group = factor(S))) +
+  geom_boxplot() +
+  facet_grid(cols = vars(method)) +
+  theme_bw()
+```
+
+```{r message=FALSE, warning=FALSE}
+# fit100g <- fit500g <- 
+#   fit1kg <- fit2kg <- 
+#   fit100r <- fit500r <- 
+#   fit1kr <- fit2kr <- tibble()
+# 
+# for (i in seq_along(1:1000)) {
+#   fit100g <- sample100[[i]][[3]] %>%
+#     mutate(iter = i,
+#            simu = 100,
+#            method = "GCV") %>%
+#     nest(-iter) %>%
+#     rbind(fit100g)
+# 
+#   fit100r <- sample100[[i]][[4]] %>%
+#     mutate(iter = i,
+#            simu = 100,
+#            method = "REML") %>%
+#     nest(-iter) %>%
+#     rbind(fit100r)
+#   
+#   fit500g <- sample500[[i]][[3]] %>% 
+#     mutate(iter = i,
+#            simu = 500,
+#            method = "GCV") %>%
+#     nest(-iter) %>%
+#     rbind(fit500g)
+#   
+#   fit500r <- sample500[[i]][[4]] %>% 
+#     mutate(iter = i,
+#            simu = 500,
+#            method = "REML") %>%
+#     nest(-iter) %>%
+#     rbind(fit500r)
+#   
+#   fit1kg <- sample1k[[i]][[3]] %>% 
+#     mutate(iter = i,
+#            simu = 1000,
+#            method = "GCV") %>%
+#     nest(-iter) %>%
+#     rbind(fit1kg)
+#   
+#   fit1kr <- sample1k[[i]][[4]] %>% 
+#     mutate(iter = i,
+#            simu = 1000,
+#            method = "REML") %>%
+#     nest(-iter) %>%
+#     rbind(fit1kr)
+#   
+#   fit2kg <- sample2k[[i]][[3]] %>% 
+#     mutate(iter = i,
+#            simu = 2000,
+#            method = "GCV") %>%
+#     nest(-iter) %>%
+#     rbind(fit2kg)
+#   
+#   fit2kr <- sample2k[[i]][[4]] %>% 
+#     mutate(iter = i,
+#            simu = 2000,
+#            method = "REML") %>%
+#     nest(-iter) %>%
+#     rbind(fit2kr)
+# } 
+# 
+# fit_all <-
+#   rbind(fit100g, fit500g,
+#         fit1kg, fit2kg,
+#         fit100r, fit500r,
+#         fit1kr, fit2kr) %>%
+#   rownames_to_column("number") %>%
+#   unnest(data)
+
+# save(fit_all, file = "question8_fitall.Rdata")
+load("question8_fitall.Rdata")
+```
+
+```{r fig.height=4, fig.width=5, cache=TRUE}
+fit_all %>%
+  ggplot() +
+  geom_line(aes(Age, .fitted, 
+                group = iter,
+                color = iter)) +
+  theme_bw() +
+  facet_grid(rows = vars(simu), cols = vars(method)) +
+  theme(legend.position = "none")
+    
+```
+
+As shown in the smoothness graph and the fitted outcome line graphs, 
+with the same sample size, 
+the REML larger penalty term values than the GCV method.
+This result is pretty much consistent with the fitted trajectories, 
+where the GCV estimated trajectories are more wiggly than 
+the REML estimated trajectories in general.
+
+When the sample is small, like around 100, even though the GCV has seemingly larger 
+mean and median for the penalty term, the variance for GCV is very large 
+(almost twice as the median deviance of REML). Hence graphically GCV trajectories still get a more wiggly impression than REML.
+
+As we increase the sample size, for both methods the trajectories become more smoother.
+The overall result from this question 8b pretty much confirms the results in question 8a.

@@ -1,0 +1,775 @@
+---
+title: "Explorations and Experiments on INLA with NHANES data"
+author: "Randy"
+date: "April 20, 2021"
+output:
+  pdf_document: default
+  word_document: default
+subtitle: BIOS 7720
+---
+
+
+```{r, setup, echo= FALSE, include = FALSE}
+library(tidyverse)
+library(mgcv)
+library(INLA)
+library(brinla)
+library(splines)
+library(refund)
+
+knitr::opts_chunk$set(
+  cache = TRUE,
+  fig.width = 7,
+  fig.height = 5)
+
+# browseVignettes(package="rnhanesdata")
+
+theme_set(theme_bw() + 
+            theme(legend.position = "none"))
+```
+
+
+# Outline
+
+* INLA ***Integrated Nested Laplace Approximations***
+* Describe the class of models INLA can be applied to
+* Look at simple examples in R-INLA.
+
+
+## INLA 
+* Integrated Laplace Approximation           
+* Introduced by Rue, Martino and Chopin (2009).             
+* Posteriors are estimated using numerical approximations.        
+  * It is a deterministic approach to approximate        
+  Bayesian inference for latent Gaussian models (LGMs)         
+  * INLA is both faster and more accurate than MCMC
+* three key components required by INLA:
+  * the LGM framework
+  * the Gaussian Markov random field (GMRF) 
+  * the Laplace approximation
+
+## Latent Gaussian Models (LGM) framework
+
+* LGMs have a wide-ranging list of applications and most structured Bayesian models      
+  * Regression models, the most extensively used subset of LGMs.
+  * Dynamic models, Spatial models and Spatial-temporal models 
+
+* Although the likelihood function does not have to be Gaussian,     
+each latent parameter $\eta_i$ must be a Gaussian given its hyperparameter in LGM.
+
+$$
+\eta_i = g(\mu_i) = \beta_0\ +\ \sum_{j=1}^J\beta_jx_{ij}\ 
+$$
+
+  * the assumption must be hold:   
+  for example, if we have two parameters
+
+$$
+\beta_0\sim Normal(\mu_0,\ \sigma^2_0)
+$$
+
+<br> 
+
+$$
+\ \beta_1\sim Normal(\mu_1,\ \sigma^2_1)
+$$
+
+## Latent Gaussian Models (LGM) framework
+
+  * then, we have the latent effect follows Gaussian:
+
+$$
+\eta_i \sim Normal(\mu_0+\mu_1x_{i1},\ \sigma_0^2 + \sigma_1^2x_{i1}^2)
+$$
+
+<br> 
+
+$$
+\pmb {\eta} = (\eta_1,\ \eta_2,\ ...,\ \eta_n)^{\top}
+$$
+
+<br>  
+
+$$
+\pmb {\eta} \sim \mathcal {\pmb {GP\ (\ \mu,\ \Sigma\ )}}
+$$
+
+<br> 
+
+* extended for additive models
+  * relax the assumption of linear relationship
+  * introduce random effects
+
+$$
+\eta_i = \beta_0\ +\ \sum_{j=1}^J\beta_jx_{ij}\ +\ \sum_{k=1}^K f_k(z_{ik})
+$$
+
+## Latent Gaussian Models (LGM) framework
+
+$$
+\pmb { y\ |\ \eta,\ \theta_1} \sim \prod_{i=1}^n p(y_i\ |\ \eta_i,\ \pmb {\theta_1} ); 
+\ \ \
+p(\eta\ |\ \pmb {\theta_2})\ \propto\ |\pmb {Q_{\theta_2}}|_{+}^{1/2}exp(- \frac {1} {2}\pmb{\eta^{\top}Q_{\theta_2}\eta})
+$$
+<br> 
+
+$$
+\pi(\pmb{\eta,\ \theta\ |\ y}) \propto\ \pi(\pmb \theta)\ \pi(\pmb{\eta\ |\ \theta_2}) \prod_ip(y_i\ |\ \pmb{\eta_i},\ \pmb{\theta_1})
+$$
+
+<br> 
+
+$$
+\propto\ \pi(\pmb \theta)\ |\pmb {Q_{\theta_2}}|^{1/2}exp(- \frac {1} {2}\pmb{\eta^{\top}Q_{\theta_2}\eta}\ +\ \sum_i log\pmb{\pi}(y_i\ |\ \eta_i,\ \pmb{\theta_1}))
+$$
+
+instead of using $\Sigma$, we apply the precision matrix $Q_{\theta}$
+
+## Guassian Markov Random Fields (GMRFs)
+
+* the latent field $\eta$ should not only be Gaussian      
+but also Guassian Markov Random Field       
+
+  * We say $\eta$ is a GMRF if it has a multivariate normal density     
+    with additional conditional independence     
+    (also called the “Markov property”). 
+  * One common thing between different GMRFs:     
+  they all have a sparse precision matrix. 
+    * Sparse matrix provides a huge computational benefit      
+    when making Bayesian inference.
+    * “Magic” in INLA: The joint distribution of of GMRF is also a GMRF 
+    * Precision matrix consists of sums of        
+    the precision matrices of the covariates and model components. 
+    
+## *Additional notes AR(1)*
+* band matrix example AR(1)
+
+<br>        
+<br>        
+
+$$
+\pmb{Q} =\ \sigma _{\eta}^{-2}
+\begin{pmatrix}
+1 & -\rho &  & & 
+\\
+-\rho & 1+\rho^2 & -\rho & 
+\\
+& \ddots & \ddots & \ddots
+\\
+&  & -\rho & 1+\rho^2 & -\rho 
+\\
+& & &  -\rho & 1
+\end{pmatrix}
+$$
+
+<br> 
+
+###
+
+$$
+\pmb x \sim Normal (\ \pmb 0, \ \pmb Q_X ^ {-1} \ ) \\
+\pmb y \ |\ \pmb x \sim Normal (\ \pmb x, \ \pmb Q_Y ^ {-1} \ ) \\
+\text{then, } \pmb Q_{(X, Y)} = 
+\begin{bmatrix}
+  \pmb Q_X + \pmb Q_Y & - \pmb Q_Y  \\
+  - \pmb Q_Y  & \pmb Q_Y 
+\end{bmatrix}
+$$
+
+* conditional independent for $|i - j| > step\ 1$
+
+## *Additional notes AR(1)*
+
+* conditional independent for $|i - j| > step$
+
+<br> 
+
+$$
+p(\eta_2,\ \eta_4\ |\ \eta_1,\ \eta_3)\ =\ p(\eta_2\ |\ \eta_1)\ p(\eta_4\ |\ \eta_1\ ,\ \eta_2,\ \eta_3)\
+= p(\eta_2\ |\eta_1)\ p(\eta_4\ |\eta_3)
+$$
+
+
+  * In summary all AR processes are a Gaussian process
+  with a conditional independence property,
+  making the corresponding precision matrix sparsed.
+
+
+## Laplace Approximation and INLA
+
+* Laplace approximate integral
+let $x_0$ be the mode in funciton f(x), Taylor expansion on f(x) at $x_0$:
+
+$$
+I_n\ \approx \int_{\mathcal {X}} exp\bigg(n\Big(f(x_0)\ +\ (x-x_0)f'(x_0)\ +\ \frac {1}{2}(x-x_0)^2f''(x_0)\Big)\bigg)dx
+$$
+
+$$
+=\ exp\big( nf(x_0)\big) \int exp\Big( \frac {n}{2}(x - x_0)^2f''(x_0)\Big)dx
+$$
+
+$$
+=\ exp\big( nf(x_0)\big) \sqrt { \frac {2\pi}{nf''(x_0)} }\ =\ \tilde I_n
+$$
+
+  * $I_n$ is the Gaussian integral and $f'(x_0) = 0$ since $x_0$ is the mode.
+
+
+## Final goal of INLA
+
+$$
+\tilde \pi(\eta_i\ |\ y) = \sum_k \tilde \pi(\eta_i\ |\ \pmb {\theta^{(k)},\ y})\ \tilde \pi(\pmb {\theta^{(k)}\ |\ y}) \Delta\pmb{\theta^{(k)}},
+$$
+
+$$
+\tilde \pi(\theta_j\ |\ y) = \int \tilde \pi (\pmb{\theta\ |\ \pmb{y}})d\pmb{\theta_{-j}}
+$$
+
+
+  * Our goal is to accurately approximate the posterior marginals
+  $p(\eta_i\ |\ \pmb y)$ and $p(\theta_j\ |\ \pmb y)$.
+
+  * "The strategy used in INLA is to reformulate the problem
+  as a series of sub-problems and only apply the Laplace approximation
+  to the densities that are almost Gaussian."
+
+## Limitations
+
+* Computationally intensive as dimensions goes up, even worse in Bayesian methods.
+
+* The curse of dimensionality: exponentially scaled variance with the number of predictors.
+
+* The bias and variance balance:
+  * Introducing structure will certainly introduce bias
+  if the structure does not accurately describe reality;
+  however, it can result in a dramatic reduction in variance.
+
+* How to set up priors for hierarchial models?
+
+## Bayesian models
+
+* take a prior on each function $f_j$ which depends on hyperparameter $\tau_j$
+
+$$
+\pi(f_1,\ ...\ f_k,\ \theta\ |\ y)
+$$
+
+$$
+= L(f_1,\ ...\ f_k,\ \sigma^2_{\epsilon},\ \beta_0\ |\ y) \times \pi(\beta_0)\ \pi(\sigma_{\epsilon}^2)\ \prod^k_{j=1}\pi(f_j\ |\ \tau_j)\ \pi(\tau_j)
+$$
+
+
+## the NHANES physical activity data
+
+* Model the data as Poisson (activity counts are integers)
+
+* 1.	Associate the (estimated) latent mean/probability functions
+    * With an outcome like mortality (scalar on function regression, SoFR).
+    * Predicting mortality using SoFR on the activity counts directly.
+* 2.	Model the latent trends as a function of scalar predictors like age
+  (function on scalar regression).
+
+
+## Simple Simulation
+
+```{r echo=TRUE}
+set.seed(555)
+data <- mgcv::gamSim(1, n = 500, dist = "normal", scale = 2)
+# str(data)
+```
+
+<br>
+
+```{r echo=TRUE}
+formula1 <- y ~ f(x0, model = "rw1", scale.model = TRUE) +
+                f(x1, model = "rw1", scale.model = TRUE) +
+                f(x2, model = "rw1", scale.model = TRUE) +
+                f(x3, model = "rw1", scale.model = TRUE)
+
+formula2 <- y ~ f(x0, model = "rw2", scale.model = TRUE) +
+                f(x1, model = "rw2", scale.model = TRUE) +
+                f(x2, model = "rw2", scale.model = TRUE) +
+                f(x3, model = "rw2", scale.model = TRUE)
+
+n.group <- 50
+## ?inla.group
+## inla.group group or cluster covariates
+## so to reduce the number of unique values
+x0.new <- INLA::inla.group(data$x0, n = n.group, method = "quantile")
+x1.new <- INLA::inla.group(data$x1, n = n.group, method = "quantile")
+x2.new <- INLA::inla.group(data$x2, n = n.group, method = "quantile")
+x3.new <- INLA::inla.group(data$x3, n = n.group, method = "quantile")
+```
+
+<br>
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+names(inla.models()$latent)
+
+data.inla <- data.frame(y = data$y, x0 = x0.new,
+                       x1 = x1.new, x2 = x2.new, x3 = x3.new)
+# str(data.inla)
+
+result1 <- INLA::inla(formula1, data = data.inla)
+result2 <- INLA::inla(formula2, data = data.inla)
+result3 <- INLA::inla(y ~ 1 + ns(x0, df = 10),
+                  data = data.inla,
+                  # verbose = TRUE,
+                  # control.inla = list(strategy = "laplace", npoints = 20,
+                  control.predictor = list(compute = TRUE))
+## Error in inla.inlaprogram.has.crashed() :
+##   The inla-program exited with an error.
+##   Unless you interupted it yourself,
+##   please rerun with verbose=TRUE and check carefully.
+```
+
+<br>
+
+```{r echo=TRUE}
+summary(result1)
+```
+
+
+<br>
+
+```{r echo=TRUE, fig.height=3, fig.width=10}
+op <- par(mfrow = c(1, 3))
+bri.band.plot(result1, name = "x0", type = "random", xlab = "", ylab = "")
+lines(sort(data$x0), (data$f0 - mean(data$f0))[order(data$x0)], col = "red", lty = 2)
+
+
+bri.band.plot(result2, name = "x0", type = "random", xlab = "", ylab = "")
+lines(sort(data$x0), (data$f0 - mean(data$f0))[order(data$x0)], col = "red", lty = 2)
+
+# bri.band.plot(result3, name = "x0", type = "random", xlab = "", ylab = "")
+# bri.band.ggplot(result3, name = "x0", type = "random", xlab = "", ylab = "")
+# lines(sort(data$x0), (data$f0 - mean(data$f0))[order(data$x0)], col = "red", lty = 2)
+```
+
+
+## load dataset
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+data_path <- here::here("NHANES_AC_processed.rds")
+df <- readr::read_rds(data_path)
+## extract the PA data
+lX <- log(1 + as.matrix(df[, paste0("MIN", 1:1440)]))
+lX[is.na(lX)] <- 0
+N <- nrow(lX)
+
+## bin the data into 60 minute intervals
+tlen <- 60
+nt <- ceiling(1440 / tlen)
+inx_cols <- split(1:1440, rep(1:nt, each = tlen)[1:1440])
+lX_bin <- vapply(inx_cols,
+                 function(x) rowMeans(lX[, x], na.rm = TRUE),
+                 numeric(N))
+
+## get subject average curves
+inx_rows <- split(1:N,
+                  factor(df$SEQN,
+                         levels = unique(df$SEQN)))
+lX_bin_ind <- t(vapply(inx_rows,
+                       function(x) colMeans(lX_bin[x, ],
+                                            na.rm = TRUE),
+                       numeric(nt)))
+nid <- nrow(lX_bin_ind)
+
+# get a data frame for model fitting
+sind <- seq(0, 1, len = nt)
+udf <- df %>%
+  dplyr::select(SEQN, Age) %>%
+  group_by(SEQN) %>%
+  slice(1) %>%
+  ungroup()
+
+df_fit <- data.frame(lAC = as.vector(t(lX_bin_ind)),
+                     sind = rep(sind, nid),
+                     SEQN = rep(unique(df$SEQN), each = nt)) %>%
+  left_join(udf, by = "SEQN") %>%
+  mutate(id = factor(SEQN)) %>%
+  filter(!is.na(Age))
+View(df_fit)
+set.seed(555)
+nid_samp <- 500
+id_samp <- sample(unique(df_fit$id),
+                  size = nid_samp,
+                  replace = FALSE)
+df_fit_sub <- subset(df_fit, id %in% id_samp)
+```
+
+## Guess who's coming to dinner
+
+Now assume we have equal spaced knots $\kappa$'s to replace $x_i$
+
+$$
+PENSSE_{\lambda}\ =\ \sum_{i=1}^N(y_i-f(x_i))^2 + \lambda \int f''(x)^2dx
+$$
+
+* the integrated squared second derivative penalty term measures wiggliness!
+* which can be crudely approximated by a sum of squared second differences
+  of the function at the knots (in cubic spline smoothing)
+
+
+$$
+PENSSE_{\lambda}\ =\ \sum_{i=1}^N(y_i-f(\kappa_i))^2 + \lambda \sum_{i=2}^{K-1}\ \Big( f(\kappa_{i+1})\ -\ 2f(\kappa_i)\ +\ f(\kappa_{i-1})\ \Big)^2
+$$
+
+## Guess who's coming to dinner
+
+* In a Bayesian framework including the penalty term is equivalent
+  to setting a specific prior on the coefficients of the covariates.
+* Proved by [Fahrmeir and Kneib 2011](https://global.oup.com/academic/product/bayesian-smoothing-and-regression-for-longitudinal-spatial-and-event-history-data-9780199533022?cc=us&lang=en)
+* Proved by [Speckman and Sun (2003)](https://www.jstor.org/stable/30042040?seq=1#metadata_info_tab_contents)
+
+  * For equidistant knots {$(\kappa_0,\ ...\ \kappa_K)$} the prior is on the differences:
+
+$$
+f(\kappa_{i+1})\ -\ f(\kappa_i)\ \sim Normal(0,\ \tau),\ i= 1,\ ...,\ K-1
+$$
+
+  * which is equivalent to setting a RW1 prior on $f(\kappa_i)$
+
+## Guess who's coming to dinner
+
+  * Alternatively, when the prior is on the second order differences:
+
+$$
+f(\kappa_{i+1})\ -\ 2f(\kappa_i)\ +\ f(\kappa_{i-1})\ \sim Normal(0,\ \tau),\ i= 2,\ ...,\ K-1
+$$
+
+  *  which is equivalent to setting a RW2 prior on the coefficients.
+
+  <br>
+
+  * Hence, latent effects RW1 and RW2 can be used to include smooth terms on the covariates.
+  * The elements of the latent effect represent the values of the smooth term.
+
+## comparsion mgcv::gam() with INLA::inla()
+
+```{r echo=TRUE}
+fit_naive <- bam(lAC ~ s(sind, bs = "cc", k = 20) +
+                   s(sind, by = Age, bs = "cc", k = 20),
+                 method = "fREML",
+                 data = df_fit_sub,
+                 discrete = TRUE)
+
+## extract the resiudals
+resid_mat <- matrix(fit_naive$residuals,
+                    nid_samp, nt,
+                    byrow = TRUE)
+## fit fpca
+fpca_fit <- refund::fpca.face(resid_mat, knots = 15)
+## add in eigen-function
+for (k in 1:length(fpca_fit$evalues)) {
+  df_fit_sub[[paste0("Phi", k)]] <- rep(fpca_fit$efunctions[, k], nid_samp)
+}
+```
+
+## comparsion mgcv::gam() with INLA::inla()
+
+```{r echo=TRUE}
+fit_fri <- bam(lAC ~  s(sind, bs = "cc", k = 20) +
+                      s(sind, by = Age, bs = "cc", k = 20) +
+                      s(id, by = Phi1, bs = "re") +
+                      s(id, by = Phi2, bs = "re") +
+                      s(id, by = Phi3, bs = "re") +
+                      s(id, by = Phi4, bs = "re"),
+               method = "fREML",
+               data = df_fit_sub,
+               discrete = TRUE)
+
+save(fit_fri, file = "bios7720_nhanes_fri.Rdata")
+```
+
+
+## comparsion mgcv::gam() with INLA::inla()
+
+```{r echo=TRUE}
+formula_nh1 <- lAC ~ -1 + f(Age, model = "rw1", scale.model = TRUE, constr = FALSE)
+fit_inla <- INLA::inla(formula_nh1, data = df_fit_sub)
+
+## Error in inla.check.location(location[[r]], term = gp$random.spec[[r]]$term, :
+##  Locations are too close for f(Phi1, model="rw2", ...):
+##  min(diff(sort(x)))/diff(range(x)) = 1.442e-04 < 1e-03
+##  You can fix this by some kind of binning,
+##  see ?inla.group If you want/need to bypass this check at your own risk, do
+##  > m = get("inla.models", inla.get.inlaEnv())
+##  > m$latent$rw2$min.diff = NULL
+##  > assign("inla.models", m, inla.get.inlaEnv())
+```
+
+## comparsion mgcv::gam() with INLA::inla()
+
+```{r echo=TRUE}
+df_fit_sub$Phi1 <- INLA::inla.group(df_fit_sub$Phi1, n = n.group, method = "quantile")
+df_fit_sub$Phi2 <- INLA::inla.group(df_fit_sub$Phi2, n = n.group, method = "quantile")
+df_fit_sub$Phi3 <- INLA::inla.group(df_fit_sub$Phi3, n = n.group, method = "quantile")
+df_fit_sub$Phi4 <- INLA::inla.group(df_fit_sub$Phi4, n = n.group, method = "quantile")
+
+formula_nh2 <- lAC ~ -1 + f(Age, model = "rw1", scale.model = TRUE, constr = FALSE) +
+                   f(Phi1, model = "rw1", scale.model = TRUE) +
+                   f(Phi2, model = "rw1", scale.model = TRUE) +
+                   f(Phi3, model = "rw1", scale.model = TRUE) +
+                   f(Phi4, model = "rw1", scale.model = TRUE)
+fit_inla_fri <- INLA::inla(formula_nh2, data = df_fit_sub)
+
+# save(fit_inla, file = "bios7720_inla_nhanes_naive.Rdata")
+# save(fit_inla_fri, file = "bios7720_inla_nhanes_fri.Rdata")
+# load("bios7720_inla_nhanes_naive.Rdata")
+# load("bios7720_inla_nhanes_fri.Rdata")
+```
+
+
+```{r}
+data_mort <- here::here("data_mort.rds") %>%
+    read_rds()
+
+data <- here::here("NHANES_AC_processed.rds") %>%
+    read_rds() %>%
+    ## subset the data
+    ## only consider good days of data
+    ## and individuals age 50 or over
+    filter(good_day %in% c(1),
+           Age > 50,
+           n_good_days >= 3) %>%
+    ## get mortality data from the rnhanesdata package
+    ## merge and derive 5-year mortality indicator
+    left_join(data_mort, by = "SEQN") %>%
+    mutate(mort_5yr = as.numeric(permth_exm / 12 <= 5 &
+                                     mortstat %in% 1),
+           ## replace accidental deaths within 5 years as NA
+           mort_5yr = ifelse(mort_5yr == 1 & ucod_leading %in% "004",
+                             NA,
+                             mort_5yr)) %>%
+    ## drop anyone missing mortality data
+    ## or who had accidental deaths within 5 years
+    filter(!is.na(mort_5yr))
+
+## extract just the activity count data
+Z <- as.matrix(data[, paste0("MIN", 1:1440)])
+## replace the (very few) missing values with 0
+Z[is.na(Z)] <- 0
+## get the binarized data
+Zb <- (Z >= 100) * 1
+```
+
+
+```{r}
+## fit fpca on the log count data and binarized data----------------------------
+fit_fpca <- fpca.face(log(1 + Z))
+fit_fpca_binary <- fpca.face(Zb)
+
+
+## extract the smoothed log count data
+## and estimate Pr(Active) data from the binary fit
+Zhat <- fit_fpca$Yhat
+
+
+## truncate the estimate Pr(Active) values below at 0 and above at 1
+Zbhat <- fit_fpca$Yhat
+Zbhat <- apply(Zbhat, 2,
+               function(x) ifelse(x < 0, 0, ifelse(x > 1, 1, x)))
+
+
+# Wed May 19 21:59:56 2021 -----------------------------------------------------
+## average across days within participants (SEQN)
+# unique subject identifiers
+uid <- unique(data$SEQN)
+# number of participants
+nid <- length(uid)
+# empty container to store average profiles
+Zsm <- matrix(NA, nid, 1440)
+Bsm <- matrix(NA, nid, 1440)
+```
+
+
+
+```{r}
+## loop over participants
+## get average "probability profiles"
+inx_ls <- lapply(uid, function(x) which(data$SEQN %in% x))
+for (i in seq_along(uid)) {
+    Zsm[i, ] <- colMeans(Zhat[inx_ls[[i]], , drop = FALSE])
+    Bsm[i, ] <- colMeans(Zbhat[inx_ls[[i]], , drop = FALSE])
+}
+
+
+## Get a data frame for analysis
+## which contains one row per participant
+df <- data[!duplicated(data$SEQN), ] %>%
+    dplyr::select(-one_of(paste0("MIN", 1:1440)))
+## add in the activity count matrix
+## using the AsIs class via I()
+## note!! be careful when working
+## with dataframes which contain matrixes
+
+df$Zsm <- I(Zsm)
+df$Bsm <- I(Bsm)
+
+## fit SoFR using using average log(1+AC) profile versus
+## probability profile
+## set up the functional domain matrix
+## mgcv will use this to construct the basis \phi_k^\gamma(s)
+sind <- seq(0, 1, len = 1440)
+smat <- matrix(sind, nrow(df), 1440, byrow = TRUE)
+df$smat <- I(smat)
+
+## set up the matrix of integration weights
+df$lmat <- I(matrix(1 / 1440, nrow(df), 1440))
+
+## multiply integration weights by the functional predictor
+df$zlmat <- I(df$lmat * df$Zsm)
+df$blmat <- I(df$lmat * df$Bsm)
+
+Age <- t(matrix(rep(df$Age, each = 1440), 1440, byrow = FALSE))
+Gender <- t(matrix(rep(df$Gender, each = 1440), 1440, byrow = FALSE))
+df$Age_m <- I(Age)
+df$Gender_m <- I(Gender)
+```
+
+
+```{r}
+## Age and Gender as linear coefficient.
+fglm_ps0 <- gam(mort_5yr ~
+                    # s(smat, bs = "cc", k = 30) +
+                    Age + Gender +
+                    s(smat, by = zlmat, bs = "cc", k = 30),
+                data = df,
+                method = "REML",
+                family = binomial)
+
+fglm_ps_b0 <- gam(mort_5yr ~
+                    # s(smat, bs = "cc", k = 30) +
+                    Age + Gender +
+                    s(smat, by = blmat, bs = "cc", k = 30),
+                data = df,
+                method = "REML",
+                family = binomial)
+```
+
+```{r}
+summary(fglm_ps0)
+summary(fglm_ps_b0)
+```
+
+```{r}
+par(mfrow = c(1, 2))
+## plot the fit from mgcv::gam
+plot(fglm_ps0,
+  xlab = "Time of Day", xaxt = "n",
+  ylab = expression(hat(gamma)(s)),
+  main = "mgcv with logTAC-lmat")
+
+plot(fglm_ps_b0,
+  xlab = "Time of Day", xaxt = "n",
+  ylab = expression(hat(gamma)(s)),
+  main = "mgcv with binary-lmat")
+```
+
+
+```{r}
+## Age and Gender interaction
+fglm_ps1 <- gam(mort_5yr ~ -1 +
+                   # s(smat, bs = "cc", k = 30) +
+                   s(smat, by = Age_m, bs = "ts", k = 30) +
+                   s(smat, by = Gender_m, bs = "ts", k = 30) +
+                   s(smat, by = zlmat, bs = "cc", k = 30),
+               data = df,
+               method = "REML",
+               family = binomial)
+
+fglm_ps_b1 <- gam(mort_5yr ~  -1 +
+                     # s(smat, bs = "cc", k = 30) +
+                     s(smat, by = Age_m, bs = "ts", k = 30) +
+                     s(smat, by = Gender_m, bs = "ts", k = 30) +
+                     s(smat, by = blmat, bs = "cc", k = 30),
+                 data = df,
+                 method = "REML",
+                 family = binomial)
+
+summary(fglm_ps1)
+summary(fglm_ps_b1)
+```
+
+
+
+```{r}
+## RW2D model
+## I have no idea what is this data structure.
+## It does not work, I give up.
+# Cstack_info()
+# fit_rw2d <- inla(mort_5yr ~ -1 +
+#                      Age + Gender +
+#                     f(smat, model = "rw2", constr = F),
+#                 family = "binomial",
+#                 data = df,
+#                 control.predictor = list(compute = TRUE),
+#                 control.compute = list(dic = TRUE) )
+## Error: C stack usage  36254183 is too close to the limit
+```
+
+
+```{r}
+## SPDE which does not work! need more understanding on inla.
+## the structure is not working.
+## I do not know what is the counterpart of this model.
+# tps <- cbind(df$smat, df$Age)
+# mesh <- inla.mesh.2d(tps, cutoff = 0.05, max.edge = c(.5,1))
+#
+# tps <- bri.tps.prior(mesh)
+# node <- mesh$idx$loc
+# formula <- mort_5yr ~ -1 + f(smat, model = "rw1") + f(zlmat, model = "rw1")
+# result <- inla(formula, family = "binomial", data = df, verbose=TRUE)
+
+```
+
+
+## Serendipity mgcv::ginla()
+
+* Apply *Integrated Nested Laplace Approximation (INLA, Rue et al. 2009)*
+   to models estimable by gam or bam, using
+   the *INLA variant described in Wood (2019)*.
+
+* [ginla: GAM Integrated Nested Laplace Approximation Newton Enhanced](https://www.rdocumentation.org/packages/mgcv/versions/1.8-34/topics/ginla)
+* [Simplified Integrated Nested Laplace Approximation](https://www.maths.ed.ac.uk/~swood34/ginlane.pdf)
+
+```{r echo=TRUE}
+G <- gam(list(lAC ~ s(sind, bs = "cc", k = 20), ~ s(sind)),
+         data = df_fit_sub,
+         ## gaulss: Gaussian location-scale model family
+         family = gaulss(),
+         fit = FALSE)
+## regular GAM fit for comparison
+b <- gam(G = G, method = "REML")
+
+inla <- ginla(G, int = 0, approx = 0)
+## GAM Integrated Nested Laplace Approximation Newton Enhanced
+## A list with elements beta and density,
+## both of which are matrices.
+## Each row relates to one coefficient
+## (or linear coefficient combination) of interest.
+summary(b)
+summary(inla)
+```
+
+<br>
+
+## Discussion
+In this project the author explored a new methodology with INLA and Bayesian smoothing methods. More work needs to be done on both theoretical and practical levels. The major issues are in the areas of NHANES data structure manipulation. Even though the NHANES data is publicly available, the actual analyzing requires much more background information and data process, which beyond the ability in such limited time window. Another issue for this project is the limited knowledge on the Bayesian smoothing, more sophisticated higher dimensional smoothing need to be applied for the SoFR model at the end, especially the thin plate smoothing Bayesian methods, such as SPDE, or Besag. Several attempts have been tried in this project on fitting the model with RW2D and SPDE smoothing. However due to the unfamiliarity of the data structure and overlay grid structures, there are multiple fatal errors in INLA model.
+
+Here are a few perspectives worthy exploring in the future. Of course, first the RW2 and RW2D smoothing should be remodeled with after better examination. For regular lattices data, the RW2D model can be functional and appropriate, however for irregularly space location, a more flexible model which applies thin-plate spline smoothing is required. To obtain a thin plate spline estimator, studies have provided the solution following stochastic partial differential equation (SPDE). The SPDE is solved by a finite element method on a triangular mesh, and the resulting thin-plate spline (TPS) prior has a multivariate normal density with mean zero and precision matrix $\sigma_f^{-2}Q$, a highly sparse matrix due to the local nature of basis functions. This TPS prior will be a generalized extension for RW2D prior. However, this requires deeper knowledge about the spatial modeling and data manipulation, like point pattern overlay, which is beyond the purpose of this project in short terms. Hence both RW2D and SPDE will be further explored in the future.
+
+Previous research indicated that a directly application of FPCA on binary data accomplished similar results as LOESS. LOESS is one of the early and popular smoothing functions. The idea of LOESS is based on local polynomial ideas, which applies the least-squares. However, if the direct FPCA application on binary data is indeed equivalent to LOESS, the fit would also be potentially affected by influential samples or outliers (due to the M-estimation based on least squares). More questions need to be answered on whether a heavy tailed t-distribution kernel fitting is also potentially sensitive in this case, compared with the Tukey’s distribution. Whether more robust functional analytic tools or quantile smoothing spline, such as the R functions qss() and rqss() from the package quantreg (Koenker 2017), or rgam (Salibian-Barrera et al. 2014) and robustgam.
+
+Overall, this project is a failure on every level. The fatal outcomes of this project resulted from multiple reasons. More theoretical and practical knowledge is needed before further model fitting. So the final five year mortality models were built without INLA or Bayesian smoothing and attached in the appendix. Moreover, as mentioned earlier, more and more researching groups are trying to integrate INLA methods into functional data analysis, such as the ginla() function in mgcv package (Wood 2021).
+
+
+
+
+<br>
+
+* Other resources:
+  * [Bayesian inference with INLA](https://becarioprecario.bitbucket.io/inla-gitbook/index.html)
+  * [R-INLA Project](https://www.r-inla.org/)
+  * [Bayesian Regression with INLA](http://julianfaraway.github.io/brinla/)

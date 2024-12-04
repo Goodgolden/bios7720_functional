@@ -1,0 +1,1007 @@
+---
+title: "09_homework2"
+author: "Randy"
+date: "3/31/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+```{r include=FALSE}
+library("tidyverse")
+library("here")
+library("mgcv")
+library("knitr")
+library("refund")
+library("bookdown")
+```
+
+
+# Question 1 (20 points) 
+This question relates to estimating scores from fPCA. Consider the fPCA model
+
+```{r}
+## !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ##
+## I just do not want to answer the questions                                   ##
+## I do not want to interpret them                                              ##
+##                                                                              ##
+## I am tired of the lecture and other things I do not care about               ##
+## I just gave up! Do your worst, please,                                       ##
+## !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ##
+
+set.seed(19840)
+## simulation settings
+## number of functions to simulate
+N <- 100 
+## number of observations per function
+ns <- 50 
+## functional domain of observed functions
+sind <- seq(0, 1, len = ns) 
+## number of true eigen-functions
+K <- 4 
+## true eigen-values
+lambda <- 0.5^(0:(K - 1)) 
+
+## error variance
+sig2 <- 2 
+## set up true eigen-functions
+Phi <- sqrt(2) * cbind(
+  sin(2 * pi * sind), cos(2 * pi * sind),
+  sin(4 * pi * sind), cos(4 * pi * sind))
+
+## simulate coefficients
+## first, simulate standard normals, 
+## then multiply by the standard deviation 
+## to get correct variance
+xi_raw <- matrix(rnorm(N * K), N, K)
+xi <- xi_raw %*% diag(sqrt(lambda))
+
+## simulate functional responses 
+## as \sum_k \xi_ik \phi_k(t)
+x <- xi %*% t(Phi)
+y <- x + matrix(rnorm(N * ns, 
+                      mean = 0, 
+                      sd = sqrt(sig2)), 
+                N, ns)
+
+bi <- xi %*% t(Phi)
+```
+
+## 1a (5 points) 
+Fit fPCA to the simulated data above using refund::fpca.face() 
+to the simulated data above (y in the code).
+```{r}
+# ?fpca.face
+face_1a <- fpca.face(Y = y,
+                    center = FALSE,
+                    knots = 30,
+                    pve = 0.95,
+                    var = TRUE) 
+
+## the f_0(s)
+sm_1a <- face_1a$Yhat
+## the phi
+phi_1a <- face_1a$efunctions
+
+## the lambda and proportions 
+eigenvalue_1a <- face_1a$evalues
+
+score_1a <- face_1a$scores 
+# View(sm1)
+# View(phi1)
+# View(eigenvalue1)
+# View(eigenpp1)
+# View(var_e1)
+
+
+score_1a
+```
+
+## 1b (5 points) 
+Using Equation (1) above, manually obtain estimated scores 
+from the fPCA fit via refund::fpca.face() simulated data. 
+You may plug in the estimated quantities $\hat\Sigma_b$, 
+$\hat\sigma^2_{\epsilon}$, $\hat f_0(s)$ obtained from your fPCA fit. 
+Note that by default refund::fpca.face() does not return $\hat\sigma^2_{\epsilon}$, 
+but it will if you specify the argument var=TRUE to your function call.
+
+$$
+y_i(s) = f_0(s)\ +\ b_i(s)\ +\ \epsilon_i(s)
+\\
+= f_0(s)\ +\  \sum_{k=1}^K\xi_{ik}\phi_k(s)\ +\ \epsilon_i(s)
+\\
+\pmb \xi_{K \times 1} \sim N(\pmb 0_{K \times 1},\ \Sigma_b)
+\\
+\epsilon_i(s) \stackrel{iid}{\sim}\ N(0,\ \sigma^2_{\epsilon})
+$$
+
+$$
+\Omega =\ \Phi\Sigma_b\Phi^{\top}\ +\ \sigma_{\epsilon}^2 \mathcal I
+\\
+E[\xi_i|y_i] =\ \Sigma_b\Phi^{\top}\Omega^{-1}(y\ -\ f_0(s))
+$$
+```{r}
+omega <- phi_1a %*% diag(face_1a$evalues) %*% t(phi_1a) + diag(ns) * face_1a$sigma2
+# dim(face_1a$VarMats[[1]])
+# dim(solve(omega, tol = 1e-25))
+# dim(face_1a$Y - face_1a$Yhat)
+
+score_1b <- diag(face_1a$evalues) %*% 
+  t(phi_1a) %*% solve(omega, tol = 1e-25) %*%
+  t((face_1a$Y - face_1a$mu)) %>%
+  t()
+score_1b
+```
+
+## 1c (5 points) 
+Obtain estimated scores using the numeric integration approach discussed in class.
+
+$$
+Y(s) = \mu(s)\ +\  \sum_{k=1}^K\xi_{k}\phi_k(s)\ 
+\\
+\mu(s) = E[Y(s)] 
+\\
+cov(t,\ s) = Cov[Y(t),\ Y(s)]
+$$
+
+$$
+\text{The covariance matrix of Y is used to solve for } \phi 
+\\
+\text{which is the eigen-function of Y, the solution of:}
+\\
+\int cov(t,\ s)\ \phi(t)dt = \lambda\phi(s)
+\\
+\text{where the } \lambda \text{ is the variance of the random function of Y, the eigen-values.}
+$$
+
+$$
+\xi_k = \langle (Y-\mu),\, \phi_k\rangle 
+= \int(Y(s) -\ \mu(s)) \phi_k(s)ds
+$$
+
+```{r}
+score_1c <- (y - face_1a$mu) %*% phi_1a
+# View(score_1c)
+
+score_1c
+```
+
+
+
+## 1d (5 points) 
+Compare the true scores to those returned from refund::fpca.face() and
+those you manually derived in parts (b) and (c).
+
+```{r}
+score <- data.frame(sind,
+                    truth = xi,
+                    face = score_1a,
+                    estimate = score_1b,
+                    manual = score_1c)
+
+plot_score <- function(number, data = score, ...) {
+  plot <- data %>%
+    dplyr::select(ends_with(number), sind) %>% 
+    pivot_longer(-sind, 
+                 names_to = "group", 
+                 values_to = "score") %>% 
+    ggplot() +
+    geom_point(aes(x = sind,
+                   y = score,
+                   col = group), 
+               size = 1,
+               alpha = 0.5) +
+    ylim(-20, 20) +
+    theme_classic()
+  return(plot)
+}
+
+# plot_score("1")
+score1 <- map(as.character(1:4), plot_score) 
+gridExtra::grid.arrange(score1[[1]], score1[[2]],
+                        score1[[3]], score1[[4]],
+                        nrow = 2)
+```
+
+they are no on the same scales.
+
+# Question 2 (20 points) 
+In this problem we will apply fPCA to a dataset on Sequential Organ
+Failure Assessment (SOFA) scores contained in the refund dataset. 
+First, load the sofa dataset using the R code below.
+
+## 2a (5 points) 
+In this problem we will apply fPCA to a dataset 
+on Sequential Organ Failure Assessment (SOFA) scores contained in the refund dataset.
+First, load the sofa dataset using the R code below.
+
+```{r}
+data(sofa)
+# ?sofa
+ndays <- 30
+df_P2 <- sofa %>%
+  filter(los > ndays) 
+nid <- nrow(df_P2)
+df_P2[["SOFA_trunc"]] <- df_P2$SOFA[, 1:ndays]
+# View(df_P2)
+# str(df_P2)
+# View(df_P2$SOFA_trunc)
+```
+
+```{r fig.height=5, fig.width=10}
+df_2a <- cbind(df_P2$SOFA_trunc, 
+               as.character(df_P2$death)) %>%
+  data.frame() %>% 
+  rownames_to_column("id") %>%
+  pivot_longer(cols = X1:X30, 
+               names_to = "days", 
+               values_to = "sofa") %>%
+  separate(days, 
+           into = c("X", "day"), 
+           sep = 1) %>% 
+  dplyr::select(death = X31, 
+                id, day, sofa) %>%
+  mutate(day = as.numeric(day),
+         sofa = as.numeric(sofa))
+
+
+plot_2a <- df_2a %>%
+  ggplot() +
+  geom_line(aes(day, sofa, 
+                col = id,
+                group = id),
+            size = 1) +
+  theme_classic() +
+  facet_wrap("death") +
+  theme(legend.position = "none") +
+  scale_color_viridis_d()
+
+plot_2a
+```
+
+```{r}
+days <- 1:30
+## the sample eigenfunctions
+cov_raw <- cov(df_P2$SOFA_trunc)
+eigen <- eigen(cov_raw)
+
+## the face eigenfunctions
+## center the sofa first
+
+face_2a <- fpca.face(df_P2$SOFA_trunc, 
+                     knots = 20, 
+                     pve = 0.99, 
+                     center = FALSE,
+                     var = TRUE)
+fitsc <- fpca.sc(df_P2$SOFA_trunc, 
+                 nbasis = 10, 
+                 pve = 0.99)
+```
+
+```{r fig.height=5, fig.width=10}
+death <- df_P2 %>%
+  filter(death == TRUE) %>%
+  rownames()
+
+alive <- df_P2 %>%
+  filter(death == FALSE) %>%
+  rownames()
+
+df_death <- df_P2$SOFA_trunc %>% 
+  as.data.frame() %>%
+  filter(rownames(.) %in% death)
+
+df_alive <- df_P2$SOFA_trunc %>% 
+  as.data.frame() %>%
+  filter(rownames(.) %in% alive)
+
+par(mfrow=c(1, 2))
+matplot(days, t(df_P2$SOFA_trunc),
+        type = "l", lty = 1,
+        col = "grey",
+        main = "alive",
+        ylab = "sofa")
+matlines(days, 
+         t(df_alive),
+         type = "l",
+         lty = 1, 
+         lwd = 2,
+         col = viridis::viridis(24))
+
+matplot(days, t(df_P2$SOFA_trunc),
+        type = "l", lty = 1,
+        col = "grey",
+        main = "death",
+        ylab = "sofa")
+matlines(days, 
+         t(df_death),
+         type = "l",
+         lty = 1, 
+         lwd = 2,
+         col = viridis::viridis(24))
+
+```
+
+```{r fig.height=6, fig.width=6}
+curves <- array(0, dim(df_P2$SOFA_trunc))
+## all the fitted lines
+## but this is not what the mu should be
+for (i in seq_along(1:nid)) {
+  fit <- gam(df_P2$SOFA_trunc[i, ] ~ s(days, k = 20, bs = "cr"), 
+             method = "REML")
+  curves[i, ] <- fit$fitted
+}
+
+matplot(days, t(curves),
+        type = "l", 
+        lty = 2,
+        lwd = 1,
+        col = 1:50,
+        main = "SOFA each fitted",
+        ylab = "sofa")
+lines(days, colMeans(curves), 
+      col = "red", 
+      lwd = 5)
+```
+
+## 2b (5 points) 
+Apply fPCA to the 30-day data using your preferred method 
+(from class or otherwise). For the first 4 estimated eigen-functions, 
+plot $\hat \mu(s)\ +/-\ 2\phi_k(s)SD(\xi_k)$ separately for $k = 1,\ 2,\ 3,\ 4$ 
+for day $s = 1,\ ...,\ 30$. Based on these plots, provide an interpretation of the first four PCs
+
+```{r fig.height=6, fig.width=6}
+## plot the first four pcas
+par(mfrow = c(2, 2))
+plot(days, 
+     face_2a$efunctions[, 1], 
+     type = "l",
+     col = "darkgreen",  
+     bty = "l",
+     lwd = 2,
+     xlab = "",
+     ylab = "1st pc")
+## flip the sign
+lines(days, -eigen$vectors[, 1], col = "indianred3")
+legend("top", c("face", "sample"), lwd = 1,
+       col = c("darkgreen", "indianred3"))
+
+plot(days, 
+     face_2a$efunctions[, 2], 
+     type = "l",
+     col = "darkgreen", 
+     lwd = 2,
+     bty = "l",
+     xlab = "",
+     ylab = "2nd pc")
+lines(days, eigen$vectors[, 2], col = "indianred3")
+legend("topleft", c("face", "sample"), lwd = 1,
+       col = c("darkgreen", "indianred3"))
+
+plot(days, 
+     -face_2a$efunctions[, 3], 
+     type = "l",
+     col = "darkgreen", 
+     lwd = 2,
+     bty = "l",
+     xlab = "",
+     ylab = "3rd pc")
+lines(days, eigen$vectors[, 3], col = "indianred3")
+legend("bottom", c("face", "sample"), lwd = 1,
+       col = c("darkgreen", "indianred3"))
+
+plot(days, 
+     face_2a$efunctions[, 4], 
+     type = "l",
+     col = "darkgreen",
+     lwd = 2,
+     bty = "l",
+     xlab = "",
+     ylab = "4th pc")
+lines(days, eigen$vectors[, 4],col = "indianred3")
+legend("topleft", c("face", "sample"), lwd = 1,
+       col = c("darkgreen", "indianred3"))
+
+```
+
+```{r fig.height=3, fig.width=9}
+par(mfrow = c(1, 3))
+fields::image.plot(days, 
+                   days, 
+                   cov_raw, 
+                   col = viridis::viridis(50), 
+                   zlim = c(8, 22),
+                   main = "raw_data")
+
+cov_2b <- cov(curves)
+fields::image.plot(days, 
+                   days, 
+                   cov_2b, 
+                   col = viridis::viridis(50), 
+                   zlim = c(8, 22),
+                   main = "gam fitted")
+
+cov_face <- cov(face_2a$Yhat)
+fields::image.plot(days, 
+                   days, 
+                   cov_face, 
+                   col = viridis::viridis(50), 
+                   zlim = c(8, 22),
+                   main = "face fitted")
+```
+
+```{r fig.height=6, fig.width=6}
+# face_2a$evalues
+# View(face_2a$efunctions)
+# mu <- colMeans(curves)
+
+op <- par(mfrow = c(2, 2))
+mu <- colMeans(curves)
+
+
+pc1 <- sqrt(face_2a$evalues[[1]]) * face_2a$efunctions[, 1]
+pc2 <- sqrt(face_2a$evalues[[2]]) * face_2a$efunctions[, 2]
+pc3 <- sqrt(face_2a$evalues[[3]]) * face_2a$efunctions[, 3]
+pc4 <- sqrt(face_2a$evalues[[4]]) * face_2a$efunctions[, 4]
+
+matplot(days, 
+        cbind(mu - 2 * pc1, 
+              mu + 2 * pc1),
+        pch = c("-", "+"), 
+        ylab = "", 
+        col = c("darkgreen", "indianred3"),
+        main = "mu +/- 2fPC1")
+lines(days, mu, 
+      lty = 1, 
+      lwd = 1)
+
+matplot(days,
+        cbind(mu - 2 * pc2, 
+              mu + 2 * pc2),
+        pch = c("-", "+"), 
+        ylab = "", 
+        col = c("darkgreen", "indianred3"),
+        main = "mu +/- 2fPC2")
+lines(days, mu, 
+      lty = 1, 
+      lwd = 1)
+
+matplot(days,
+        cbind(mu - 2 * pc3, 
+              mu + 2 * pc3),
+        pch = c("-", "+"), 
+        ylab = "", 
+        col = c("darkgreen", "indianred3"),
+        main = "mu +/- 2fPC3")
+lines(days, mu, 
+      lty = 1, 
+      lwd = 1)
+
+matplot(days,
+        cbind(mu - 2 * pc4, 
+              mu + 2 * pc4),
+        pch = c("-", "+"), 
+        ylab = "", 
+        col = c("darkgreen", "indianred3"),
+        main = "mu +/- 2fPC4")
+lines(days, mu, 
+      lty = 1, 
+      lwd = 1)
+```
+
+```{r fig.height=6, fig.width=6}
+
+df_2b <- data.frame(t(face_2a$Yhat),
+                    mu = colMeans(curves),
+                    day = 1:30,
+                    pc1 = sqrt(face_2a$evalues[[1]]) * face_2a$efunctions[, 1],
+                    pc2 = sqrt(face_2a$evalues[[2]]) * face_2a$efunctions[, 2],
+                    pc3 = sqrt(face_2a$evalues[[3]]) * face_2a$efunctions[, 3],
+                    pc4 = sqrt(face_2a$evalues[[4]]) * face_2a$efunctions[, 4]) 
+## reshape2::melt(id.vars= "day")
+pca1 <- df_2b %>%
+  ggplot() +
+  geom_line(aes(day, mu)) +
+  geom_line(aes(day, mu + 2 * pc1), col = "red") +
+  geom_line(aes(day, mu - 2 * pc1), col = "darkgreen") +
+  theme_classic() +
+  ggtitle("mu +/- 2fpc1")
+
+pca2 <- df_2b %>%
+  ggplot() +
+  geom_line(aes(day, mu)) +
+  geom_line(aes(day, mu + 2 * pc2), col = "red") +
+  geom_line(aes(day, mu - 2 * pc2), col = "darkgreen") +
+  theme_classic() +
+  ggtitle("mu +/- 2fpc2")
+
+pca3 <- df_2b %>%
+  ggplot() +
+  geom_line(aes(day, mu)) +
+  geom_line(aes(day, mu + 2 * pc3), col = "red") +
+  geom_line(aes(day, mu - 2 * pc3), col = "darkgreen") +
+  theme_classic() +
+  ggtitle("mu +/- 2fpc3")
+
+pca4 <- df_2b %>%
+  ggplot() +
+  geom_line(aes(day, mu)) +
+  geom_line(aes(day, mu + 2 * pc4), col = "red") +
+  geom_line(aes(day, mu - 2 * pc4), col = "darkgreen") +
+  theme_classic() +
+  ggtitle("mu +/- 2fpc4")
+
+gridExtra::grid.arrange(pca1, pca2, pca3, pca4, nrow = 2)
+```
+
+The shape of the first fPC1 indicates that there is
+big variability on SOFA at the beginning, the middle, and the end of ICU 30 days.
+The shapes of the remaining fPCs are to a large extent determined by their orthogonality.
+For example, the shape of fPC2 not only reflects 
+the second most important mode of variability from the mu-fPC plots, 
+but also the condition  that fPC2 must also be orthogonal to fPC1, 
+and this mathematical condition places a constraint on its shape. 
+For this reason, the subsequent fPCs have more and more zero crossings and less 
+influence over the mu. 
+
+## 2c (5 points) 
+Fit a logistic regression of eventual mortality on the first four
+PC scores. Use your results from the previous sub-question to interpret
+your results. Then, estimate the discriminitive performance of your model
+using AUC. Compare the in-sample AUC to 10-fold cross-validated AUC.
+Comment on your results.
+
+```{r message=FALSE, warning=FALSE}
+df_2c <- df_P2 %>%
+  mutate(pc1 = face_2a$scores[, 1],
+         pc2 = face_2a$scores[, 2],
+         pc3 = face_2a$scores[, 3], 
+         pc4 = face_2a$scores[, 4])
+
+## you said logistic regression
+fit_2c <- glm(death ~ pc1 + pc2 + pc3 + pc4,
+              family = binomial(link = "logit"),
+              data = df_2c)
+
+library("pROC")
+roc_in_sample <- pROC::roc(df_2c$death, fit_2c$fitted.values)
+roc_in_sample
+
+train <- sample_n(df_2c, size = floor(0.9 * nrow(df_2c)))
+test <- anti_join(df_2c, train)
+fit_cv <- glm(death ~ pc1 + pc2 + pc3 + pc4,
+              family = binomial(link = "logit"),
+              data = train)
+
+newdata <- test %>%
+  select(contains("pc"))
+predict_cv <- predict(fit_cv, newdata)
+roc_cv <- pROC::roc(test$death, predict_cv)
+roc_cv
+
+fit_2c_tidy <- broom::tidy(fit_2c)
+est_2c <- fit_2c_tidy$estimate
+
+```
+
+## 2d (5 points)
+Use the connection between regression on the PC scores and the
+generalized functional linear model to plot the estimated.
+
+```{r}
+
+
+df_2c$xi <- I(face_2a$scores)
+efun <- face_2a$efunctions[, 1:4, drop = FALSE]
+fit_2d <- gam(death ~ df_2c$xi[, 1:4, drop = FALSE], 
+              data = df_2c, family = binomial)
+
+
+roc_in_sample <- pROC::roc(df_2c$death, fit_2d$fitted.values)
+roc_in_sample
+
+train <- sample_n(df_2c, size = floor(0.9 * nrow(df_2c)))
+`%notin%` <- Negate(`%in%`)
+test <- df_2c %>%
+  filter(rownames(.) %notin% rownames(train))
+fit_cv <- gam(death ~ xi[, 1:4, drop = FALSE], 
+              data = train, family = binomial)
+
+vcov <- vcov(fit_2d, unconditional = TRUE)
+se <- sqrt(diag(vcov))
+
+gamma <- efun %*% coef(fit_2d)[-1]
+upper <- efun %*% (coef(fit_2d) + 2 * se)[-1]
+lower <- efun %*% (coef(fit_2d) - 2 * se)[-1]
+
+plot_2d <- data.frame(gamma, upper, lower, day = 1:30) %>%
+  ggplot() +
+  geom_line(aes(day, gamma)) +
+  geom_line(aes(day, upper), col = "red") +
+  geom_line(aes(day, lower), col = "darkgreen") +
+  theme_classic()
+
+plot_2d
+```
+
+
+# Question 3 (20 points) 
+This problem also makes use of the SOFA dataset. Here we will
+consider the SOFA score as our outcome and explore the association between
+baseline covariates and SOFA trajectories.
+
+## 3a (5 points) 
+Set up the dataframe in long format for fitting function-on-scalar
+regression. Include covariate data on age, gender, and charlson score.
+
+```{r}
+data(sofa)
+sofa3 <- df_P2 %>% 
+  rownames_to_column("id")
+
+Ns <- nrow(sofa3)
+ns <- ncol(sofa3$SOFA_trunc)
+sind <- 1:30 
+
+df_3a <- data.frame(id = factor(rep(sofa3$id, each = ns)),
+                    sofa = as.vector(t(sofa3$SOFA_trunc)),
+                    sind = rep(sind, times = Ns),
+                    age = rep(sofa3$age, each = ns),
+                    gender = rep(sofa3$male, each = ns),
+                    charlson = rep(sofa3$Charlson, each = ns)) %>%
+  mutate(gender = as.numeric(gender))
+```
+
+## 3b (5 points) 
+Fit the "naive" varying coefficient model
+and plot the estimated $\hat f_k(s)\ +/−\ 2SE(\hat f_k(s)),\ for\ k = 0,\ 1,\ 2$
+
+```{r}
+fit_naive <- gam(sofa ~ s(sind, bs = "cr", k = 20) + 
+                   s(sind, by = age, bs = "cr", k = 20) +
+                   s(sind, by = charlson, bs = "cr", k = 20),
+                 data = df_3a, 
+                 method = "REML")
+df_f0 <- data.frame("sind" = sind, "age" = 1, "charlson" = 1)
+fhat_f0 <- predict(fit_naive, 
+                   newdata = df_f0, 
+                   se.fit = TRUE, 
+                   type = "terms") %>% 
+  as.data.frame() %>%
+  cbind(sind)
+```
+
+```{r fig.height=6, fig.width=6}
+op <- par(mfrow = c(2, 2)) 
+plot(fit_naive, 
+     scheme = 3, 
+     residuals = TRUE, 
+     se = TRUE, 
+     phi = 20,
+     shade = TRUE)
+par(op)
+
+par(mfrow = c(2, 2)) 
+matplot(fhat_f0$sind,
+        cbind(fhat_f0$fit.s.sind. - 2 * fhat_f0$se.fit.s.sind.,
+              fhat_f0$fit.s.sind. + 2 * fhat_f0$se.fit.s.sind.),
+        pch = c("-", "+"), 
+        xlab = "days",
+        ylab = "", 
+        col = c("darkgreen", "indianred3"),
+        main = "f0")
+lines(fhat_f0$sind, 
+      fhat_f0$fit.s.sind., 
+      lty = 1, 
+      lwd = 1)
+
+matplot(fhat_f0$sind,
+        cbind(fhat_f0$fit.s.sind..age - 2 * fhat_f0$se.fit.s.sind..age,
+              fhat_f0$fit.s.sind..age + 2 * fhat_f0$se.fit.s.sind..age),
+        pch = c("-", "+"), 
+        xlab = "days",
+        ylab = "", 
+        col = c("darkgreen", "indianred3"),
+        main = "f1")
+lines(fhat_f0$sind, 
+      fhat_f0$fit.s.sind..age, 
+      lty = 1, 
+      lwd = 1)
+
+matplot(fhat_f0$sind,
+        cbind(fhat_f0$fit.s.sind..charlson - 2 * fhat_f0$se.fit.s.sind..charlson,
+              fhat_f0$fit.s.sind..charlson + 2 * fhat_f0$se.fit.s.sind..charlson),
+        pch = c("-", "+"), 
+        xlab = "days",
+        ylab = "", 
+        col = c("darkgreen", "indianred3"),
+        main = "f2")
+lines(fhat_f0$sind, 
+      fhat_f0$fit.s.sind..charlson, 
+      lty = 1, 
+      lwd = 1)
+par(op)
+
+
+out_naive <- mgcViz::getViz(fit_naive)
+print(plot(out_naive, allTerms = TRUE), pages = 1)
+
+# library(mgcViz)
+# library(hexbin)
+# check_naive <- check2D(out_naive, x1 = "age", x2 = "charlson")
+# check_naive + l_gridCheck2D(gridFun = mean)
+```
+
+## 3c (5 points) 
+Does the independent residual assumption seem reasonable here?
+Justify your claim using relevant numeric summaries and/or figures.
+
+```{r fig.height=6, fig.width=6}
+par(mfrow = c(2, 2)) 
+gam.check(fit_naive)
+```
+
+
+```{r fig.height=3, fig.width=9}
+sofa_raw <- matrix(df_3a$sofa, Ns, ns, byrow=TRUE)
+fhat_naive <- matrix(fit_naive$fitted.values, Ns, ns, byrow=TRUE)
+resid_naive <- matrix(fit_naive$residuals, Ns, ns, byrow=TRUE)
+
+cor_raw <- cov(sofa_raw) 
+cor_raw <- ((cov_raw + t(cov_raw))/2) %>% cov2cor()
+cor_resid_n <- cov(resid_naive) %>% cov2cor()
+cor_fhat <- cov(fhat_naive) %>% cov2cor()
+
+par(mfrow = c(1, 3))
+fields::image.plot(sind, 
+                   sind, 
+                   cor_raw, 
+                   zlim = c(0.45, 1),
+                   col = viridis::viridis(50),
+                   main = "raw data")
+fields::image.plot(sind, 
+                   sind, 
+                   cor_resid_n, 
+                   zlim = c(0.45, 1), 
+                   col = viridis::viridis(50),
+                   main = "residuals")
+fields::image.plot(sind,  
+                   sind, 
+                   cor_fhat, 
+                   zlim = c(0.8, 1), 
+                   col = viridis::inferno(50),
+                   main = "fhat")
+```
+
+## 3d (5 points) 
+Estimate the functional random intercept model; Note, you do not need to
+actually iterate the procedure, you just need to use the method described
+for estimating φ from the residuals of the naive model. Plot the estimated
+$\hat f_k(s)\ +/−\ 2SE(\hat f_k(s)),\ for\ k = 0,\ 1,\ 2$ Comment on any difference you see
+from the naive model.
+```{r}
+res_face <- fpca.face(resid_naive, 
+                      pve = 0.95, 
+                      var = TRUE, 
+                      knots = 20, 
+                      center = FALSE)
+
+egfuns <- res_face$efunctions
+egvals <- res_face$evalues
+for(k in seq_along(1:ncol(egfuns))){
+  df_3a[[paste0("phi", k ,"_hat")]] <- egfuns[,k]
+}
+
+## Thu Apr 15 16:39:13 2021 --------------------------
+## model does not work overfitting? -----------------------------
+# fit_rfit <- gam(sofa ~ s(sind, bs = "cr", k = 20) + 
+#                   s(sind, by = age, bs = "cr", k = 20) +
+#                   s(sind, by = charlson, bs = "cr", k = 20) +
+#                   s(id, by = phi1_hat, bs = "re"),
+#                   data = df_3a, 
+#                 method = "fREML", 
+#                 discrete = TRUE)
+
+fit_gamm4 <- gamm4::gamm4(sofa ~ s(sind, bs = "cr", k = 20) +
+                            s(sind, by = age, bs = "cr", k = 20) +
+                            s(sind, by = charlson, bs = "cr", k = 20),
+                          random = (~ (phi1_hat + 0 | id) +
+                                      (phi2_hat + 0 | id) +
+                                      (phi3_hat + 0 | id) +
+                                      (phi4_hat + 0 | id) +
+                                      (phi5_hat + 0 | id)),
+                          data = df_3a,
+                          REML = TRUE)
+
+fit_gamm0 <- mgcv::gamm(sofa ~ s(sind, bs = "cr", k = 20) +
+                            s(sind, by = age, bs = "cr", k = 20) +
+                            s(sind, by = charlson, bs = "cr", k = 20),
+                            random = list(id = pdDiag(~ phi1_hat + phi2_hat +
+                                                        phi3_hat + phi4_hat +
+                                                        phi5_hat + 0)),
+                            data = df_3a, 
+                            REML = TRUE)
+```
+
+```{r  fig.height=6, fig.width=6}
+par(mfrow = c(2, 2))
+gam.check(fit_gamm0$gam)
+gam.check(fit_gamm4$gam)
+```
+
+```{r  fig.height=6, fig.width=6}
+fit_gamm4_aug <- broom::augment(fit_gamm4$gam)
+fit_gamm0_aug <- broom::augment(fit_gamm0$gam)
+# s(fit_gamm4_aug)
+# View(fit_gamm0_aug)
+# summary(fit_gamm4$mer)
+
+df_f1 <- data.frame("sind" = sind, "age" = 1, "charlson" = 1,
+                    "phi1_hat" = 0, "phi2_hat" = 0, 
+                    "phi3_hat" = 0, "phi4_hat" = 0,
+                    "phi5_hat" = 0, id = sofa3$id[1])
+fhat_f1 <- predict(fit_gamm4$gam, 
+                   newdata = df_f1, 
+                   se.fit = TRUE, 
+                   type = "terms") %>% 
+  as.data.frame() %>%
+  cbind(sind)
+
+# ranef(fit_gamm0$lme)
+
+op <- par(mfrow = c(2, 2))
+plot(fit_gamm4$gam,
+     scheme = 3, 
+     residuals = TRUE, 
+     se = TRUE, 
+     phi = 20,
+     shade = TRUE)
+par(op)
+
+op <- par(mfrow = c(2, 2))
+par(mfrow = c(2, 2)) 
+matplot(fhat_f1$sind,
+        cbind(fhat_f1$fit.s.sind. - 2 * fhat_f1$se.fit.s.sind.,
+              fhat_f1$fit.s.sind. + 2 * fhat_f1$se.fit.s.sind.),
+        pch = c("-", "+"), 
+        xlab = "days",
+        ylab = "", 
+        col = c("darkgreen", "indianred3"),
+        main = "f0")
+lines(fhat_f1$sind, 
+      fhat_f1$fit.s.sind., 
+      lty = 1, 
+      lwd = 1)
+
+matplot(fhat_f1$sind,
+        cbind(fhat_f1$fit.s.sind..age - 2 * fhat_f1$se.fit.s.sind..age,
+              fhat_f1$fit.s.sind..age + 2 * fhat_f1$se.fit.s.sind..age),
+        pch = c("-", "+"), 
+        xlab = "days",
+        ylab = "", 
+        col = c("darkgreen", "indianred3"),
+        main = "f1")
+lines(fhat_f1$sind, 
+      fhat_f1$fit.s.sind..age, 
+      lty = 1, 
+      lwd = 1)
+
+matplot(fhat_f1$sind,
+        cbind(fhat_f1$fit.s.sind..charlson - 2 * fhat_f1$se.fit.s.sind..charlson,
+              fhat_f1$fit.s.sind..charlson + 2 * fhat_f1$se.fit.s.sind..charlson),
+        pch = c("-", "+"), 
+        xlab = "days",
+        ylab = "", 
+        col = c("darkgreen", "indianred3"),
+        main = "f2")
+lines(fhat_f1$sind, 
+      fhat_f1$fit.s.sind..charlson, 
+      lty = 1, 
+      lwd = 1)
+par(op)
+par(op)
+
+out_rfit <- mgcViz::getViz(fit_gamm4$gam)
+print(plot(out_rfit, allTerms = TRUE), pages = 1)
+```
+
+```{r fig.height=3, fig.width=9}
+resid_mix<- matrix(fit_gamm0$gam$residuals, Ns, ns, byrow=TRUE)
+sofa_raw <- matrix(df_3a$sofa, Ns, ns, byrow=TRUE)
+
+cor_raw <- cov(sofa_raw) 
+cor_raw <- ((cov_raw + t(cov_raw))/2) %>% cov2cor()
+cor_resid_mix <- cov(resid_mix) %>% cov2cor()
+
+par(mfrow = c(1, 3))
+fields::image.plot(sind, sind, 
+                   cor_raw, 
+                   col = viridis::viridis(50),
+                   main = "raw data")
+
+fields::image.plot(sind, sind, 
+                   cor_resid_mix, 
+                   col = viridis::viridis(50),
+                   main = "residuals")
+
+fhat_mix<- matrix(fit_gamm0$gam$fitted.values, Ns, ns, byrow=TRUE)
+cor_fhat_mix <- cov(fhat_mix) %>% cov2cor()
+fields::image.plot(sind, sind, 
+                   cor_fhat_mix, 
+                   col = viridis::inferno(50),
+                   main = "fhat_mix")
+```
+
+# Question 4 (20 points) 
+When applying FDA we always want to keep in mind simpler models when/where appropriate. 
+Propose one simpler model for each of problems 2 and 3 
+which still includes all the covariates in some form 
+(e.g. don’t drop age from the model in problem 3). 
+Compare your proposed simpler model to the more complicated model 
+using the model performance measures: AUC (problem 2) and MSE (problem 3). 
+Comment on your findings. 
+You may use either in-sample or cross-validated predictive performance.
+
+```{r cache = TRUE}
+simple_2 <- gam(death ~ s(SOFA_trunc, bs = "cc", k = 20),
+                method = "REML",
+                family = binomial,
+                data = df_P2)
+
+roc_s2_is <- pROC::roc(df_P2$death, simple_2$fitted.values)
+roc_s2_is
+```
+
+
+```{r cache = TRUE}
+simple_3 <- gam(sofa ~ te(sind, age, bs = c("cr", "cr"), k = c(30, 30)), 
+                data = df_3a)
+
+## cross validation 
+train_s3 <- sample_n(df_3a, size = floor(0.9 * nrow(df_3a)))
+test_s3 <- anti_join(df_3a, train_s3)
+simple_3cv <- gam(sofa ~ te(sind, age, 
+                          bs = c("cr", "cr"), 
+                          k = c(30, 30)), 
+                data = train_s3)
+
+newdata <- test_s3 %>% select(sind, age)
+predict_s3_cv <- predict(simple_3cv, newdata)
+
+roc_s3_is <- pROC::roc(df_3a$sofa, simple_3$fitted.values)
+roc_s3_is
+roc_s3_cv <- pROC::roc(test_s3$sofa, predict_s3_cv)
+roc_s3_cv
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

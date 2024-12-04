@@ -1,0 +1,166 @@
+```{r}
+library("tidymodels")
+library("tidyverse")
+library("here")
+library("janitor")
+library("knitr")
+library("tinytex")
+library("bookdown")
+library("mgcv")
+
+```
+
+
+```{r}
+set.seed(19840)
+# simulation settings
+N <- 100 # number of functions to simulate
+ns <- 500 # number of observations per function
+sind <- seq(0, 1, len = ns) # functional domain of observed functions
+K <- 4 # number of true eigenfunctions
+lambda <- 0.5^(0:(K - 1)) # true egenfunctions
+sig2 <- 2 # error variance
+# set up true eigenfunctions
+Phi <- sqrt(2) * cbind(
+  sin(2 * pi * sind), cos(2 * pi * sind),
+  sin(4 * pi * sind), cos(4 * pi * sind))
+# simulate coefficients
+# first, simulate standard normals, then multiply by the
+# standard deviation to get correct variance
+xi_raw <- matrix(rnorm(N * K), N, K)
+xi <- xi_raw %*% diag(sqrt(lambda))
+# simulate functional responses as \sum_k \xi_ik \phi_k(t)
+x <- xi %*% t(Phi)
+y <- x + matrix(rnorm(N * ns,
+                      mean = 0, 
+                      sd = sqrt(sig2)), 
+                N, ns)
+```
+
+```{r}
+library("fdapace")
+# create inputs for the fdapace::FPCA function
+Ly <- Lt <- vector(mode = "list", length = N)
+for (i in 1:N) {
+  # create vector of observed data
+  Ly[[i]] <- y[i, ]
+  # create vector of observed T_ij (functional domain)
+  # note that because we have no missing data and all observations
+  # are on the same grid, this is the same for each function
+  Lt[[i]] <- sind
+}
+time_start_ks <- Sys.time()
+fit_ks <- FPCA(Ly = Ly, Lt = Lt,
+               optns = list(dataType = "Sparse", 
+                            error = TRUE,
+                            FVEthreshold = 0.95))
+time_end_ks <- Sys.time()
+difftime(time_end_ks, time_start_ks, units = "mins")
+## Time difference of 3.201055 mins
+```
+
+
+```{r}
+str(fit_ks, max.level = 1)
+## working grid is not the observed grid
+```
+
+the correlation matrix has something larger than one
+use bootstrap function to get the eigen-functions
+
+
+```{r}
+df_mu <- data.frame(y = as.vector(y), t = rep(sind, each = N))
+mu_fit <- gam(as.vector(y) ~ s(t, bs = "cr", k = 30),
+  method = "REML", data = df_mu)
+mu_est <- predict(mu_fit, 
+                  newdata = data.frame(t = sind), 
+                  type = "response")
+ytilde <- y - matrix(mu_est, N, ns, byrow = TRUE)
+
+Sigma_hat <- crossprod(ytilde) / N
+zy <- as.vector(Sigma_hat)
+zt1 <- rep(sind, each = ns)
+zt2 <- rep(sind, ns)
+fit_Sigma <- gam(zy ~ s(zt1, zt2, k = 30), 
+                 method = "REML", 
+                 weights = rep(N, ns * ns))
+```
+
+
+```{r}
+## get predictions from the model fit at the range of observed values
+df_pred <- data.frame(zt1 = zt1, 
+                      zt2 = zt2)
+Sigma_sm <- predict(fit_Sigma, 
+                    newdata = df_pred, 
+                    type = "response")
+## transform into a matrix
+## note this matrix is not symmetric!
+## impose symmetry ourselves
+Sigma_sm <- matrix(Sigma_sm, ns, ns)
+Sigma_sm <- (Sigma_sm + t(Sigma_sm)) / 2
+# Tue Mar 30 15:16:55 2021 ------------------------------
+## make the matrix average and then use it
+## other than use the upper or lower triangle matrix
+```
+
+
+the eigen-value might not be semi positive definite 
+and we only consider the positive eigenvalues
+
+add constriant for the estimate function to 
+make the eigen-value be positive semi-definite positive
+
+
+```{r}
+## eigendecomposition of the smoothed covariance
+eigen_Sigma_sm <- eigen(Sigma_sm, symmetric = TRUE)
+evals_raw <- eigen_Sigma_sm$values
+## choose K
+evals_pos <- evals_raw[evals_raw >= 0]
+c <- 0.95
+(K <- min(which(cumsum(evals_pos) / sum(evals_pos) >= c)))
+## [1] 3
+## this is consistent with the kernel estimation function
+## get eigenfucntions, eigenvalues, covariance
+efuncs <- eigen_Sigma_sm$vectors[, 1:K]
+evals <- eigen_Sigma_sm$values[1:K]
+Sigma_manual <- efuncs %*% diag(evals) %*% t(efuncs)
+cor_manual <- cov2cor(Sigma_manual)
+var_manual <- diag(Sigma_manual)
+```
+
+
+```{r}
+library("refund")
+## fit fpca using refund::fpca.sc()
+time_start_ps_sc <- Sys.time()
+fpca_ps_sc <- fpca.sc(Y = y, 
+                      argvals = sind, 
+                      nbasis = 10, 
+                      pve = 0.95)
+time_end_ps_sc <- Sys.time()
+difftime(time_end_ps_sc, 
+         time_start_ps_sc, 
+         units = "mins")
+## Time difference of 0.003729482 mins
+```
+
+
+```{r}
+## get estimated eigenfunctions
+efuncs_sc <- fpca_ps_sc$efunctions
+## get estimated covariance
+cov_sc <- efuncs_sc %*% diag(fpca_ps_sc$evalues) %*% t(efuncs_sc)
+cor_sc <- cov2cor(cov_sc)
+## get estiamted variance function
+var_sc <- diag(cov_sc)
+```
+
+
+
+
+
+
+

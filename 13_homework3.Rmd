@@ -1,0 +1,303 @@
+---
+title: "13_homework3"
+author: "Randy"
+date: "5/12/2021"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+Kindly Matt helps me with this homework, However it is really hard for me to understand his codes.
+
+
+## question1
+1. when any variables or outcomes can be treated as a smooth curve or function
+1. when the rates of change, the harmonic pattern, the phases and amplitude, or the derivatives of the curves also provide information
+1. when the current discrete scale hypothetically can be extend to a infinitely dimensional but impossible to use linear regressions, and an flexible approximation is good enough to summarized the overall pattern
+
+
+```{r}
+library("tidyverse")
+library("mgcv")
+library("refund")
+```
+
+```{r}
+# number of participants (functions)
+N <- 200
+
+# number of observations per function
+J <- 50
+
+# functional domain of observed functions
+sind <- seq(0, 1, len = J)
+
+## fixed effects
+f0 <- function(s) 0.5 + (s - 0.5)^2 # f_0(s)
+f1 <- function(s) sin(2 * pi * s) # f_1(s)
+x <- rnorm(N) # x_i
+
+## random effects
+# number of \phi
+K <- 4
+
+# true eigenvalues (defines variance of \xi_i)
+lambda <- 0.5^(0:(K - 1))
+
+# \phi_k
+Phi <- sqrt(2) * cbind(
+  sin(2 * pi * sind), cos(2 * pi * sind),
+  sin(4 * pi * sind), cos(4 * pi * sind))
+
+# \xi_{ik}
+xi_raw <- matrix(rnorm(N * K), N, K)
+xi <- xi_raw %*% diag(sqrt(lambda))
+
+# simulate b_i(s) as \sum_k \xi_ik \phi_k(t)
+bi <- xi %*% t(Phi)
+
+# simulate linear predictor
+# by adding the fixed effects
+# to the random effects
+# note that vapply will return the results
+# in matrix format with one column per function
+# instead of the more common 1 row per function
+fixed_eff <- vapply(1:N, 
+                    function(i, sind) 
+                      f0(sind) + f1(sind) * x[i], 
+                    numeric(J), 
+                    sind = sind)
+
+# because the fixed effect matrix is transposed,
+# need to transpose the ranom effect matrix b_i(s)
+eta <- fixed_eff + t(bi)
+
+# simulate outcome by applying g^{-1}
+expit <- function(x) 1 / (1 + exp(-x))
+ptrue <- expit(eta)
+
+# simulate the outcome.
+Y <- vapply(ptrue, function(x) rbinom(n = 1, size = 1, prob = x), numeric(1)) 
+Y <- matrix(Y, N, J, byrow = TRUE)
+```
+
+
+```{r eval=FALSE, include=FALSE}
+df_fit <- data.frame(y = as.vector(t(Y)),
+                     x = rep(x, each = J),
+                     id = factor(rep(1:N, each = J)),
+                     sind = rep(sind, N))
+
+system.time({
+  fit <- bam(y ~ s(sind, k = 10) + 
+               s(sind, by = x, bs = "cr", k = 10) + 
+               ti(id, sind, bs = c("re", "cr"), k = c(5, 5), mc = c(TRUE, FALSE)),
+             data = df_fit,
+             method = "fREML",
+             family = binomial,
+             discrete = TRUE)
+})
+
+```
+
+
+## 2a
+
+```{r} 
+set.seed(666)
+# write a function that simulates the dataset
+simulation <- function(iteration,
+                       p = ptrue,
+                       J = 50,
+                       N = 200) {
+  sind <- seq(0, 1, len = J)
+  x <- rnorm(N)
+  
+  # generate the outcomes
+  Y <- vapply(p, function(x) rbinom(n = 1, size = 1, prob = x), numeric(1))
+  Y <- matrix(Y, N, J, byrow = TRUE)
+  
+  # make a dataframe (or matrix) with this data
+  data <- data.frame(
+    y = as.vector(t(Y)),
+    x = rep(x, each = J),
+    id = factor(rep(1:N, each = J)),
+    sind = rep(sind, N))
+  
+  return(data)
+}
+
+# df <- map(1:100, simulation)
+# save(df, file = "13_homework3_df.Rdata")
+
+load("13_homework3_df.Rdata")
+
+# Warning in doTryCatch(return(expr), name, parentenv, handler) :
+#   restarting interrupted promise evaluation
+# Warning in doTryCatch(return(expr), name, parentenv, handler) :
+#   restarting interrupted promise evaluation
+# Warning in chol.default(qrx$R, pivot = TRUE) :
+#   the matrix is either rank-deficient or indefinite
+```
+
+
+```{r}
+# models <- map(df, ~ bam(y ~ s(sind, k = 10) +
+#                           s(sind, by = x, bs = "cr", k = 10) +
+#                           ti(id, sind, bs = c("re", "cr"), k = c(5, 5), mc = c(TRUE, FALSE)),
+#                         data = .x,
+#                         method = "fREML",
+#                         family = binomial,
+#                         discrete = TRUE))
+#                         
+# save(models, file = "13_homework3_models.Rdata")
+```
+
+
+```{r}
+# data <- data.frame(sind = sind,
+#                    x = 1,
+#                    id = factor(1))
+# 
+# f0_s <- f0(sind)
+# f1_s <- f1(sind)
+# 
+# int_mse <- var_mse <- 
+#   int_cover <- var_cover <- 
+#   int_lower <- int_upper <- 
+#   var_lower <- var_upper <- rep(NA, 100)
+# prediction <- list()
+# 
+# for (i in 1:100){
+#   prediction[[i]] <- predict(models[[i]],
+#                              data,
+#                              type = "terms",
+#                              se.fit = T)
+# 
+#   int <- prediction[[i]]$fit[, "s(sind)"]
+#   var <- prediction[[i]]$fit[, "s(sind):x"]
+# 
+# 
+#   int_mse[i] <- mean((int - f0_s)^2)
+#   var_mse[i] <- mean((var - f1_s)^2)
+# 
+# 
+#   int_se <- prediction[[1]]$se.fit[, "s(sind)"]
+#   var_se <- prediction[[1]]$se.fit[, "s(sind):x"]
+# 
+#   int_lower[i] <- int - 2 * int_se
+#   int_upper[i] <- int + 2 * int_se
+#   var_lower[i] <- var - 2 * var_se
+#   var_upper[i] <- var + 2 * var_se
+# 
+#   cover_int <- ifelse((f0_s > int_lower) & (f0_s < int_upper), 1, 0)
+#   cover_var <- ifelse((f1_s > var_lower) & (f1_s < var_upper), 1, 0)
+# 
+#   int_cover[i] <- mean(cover_int)
+#   var_cover[i] <- mean(cover_var)
+# }
+
+
+load("homework3_predict.Rdata")
+load("homework3_int_mse.Rdata")
+load("homework3_var_mse.Rdata")
+
+load("homework3_int_cover.Rdata")
+load("homework3_var_cover.Rdata")
+
+load("homework3_int_upper.Rdata")
+load("homework3_int_lower.Rdata")
+load("homework3_var_uper.Rdata")
+load("homework3_var_loer.Rdata")
+
+
+## this is the idea of getting all the things together in one data frame. 
+## I just do not have the energy and time to do it.
+# fit_sind <- prediction %>%
+#   as.data.frame() %>%
+#   select(contains("fit.s.sind")) %>%
+#   select(!contains("se"))
+# 
+# fit_se <- prediction %>%
+#   as.data.frame() %>%
+#   select(contains("fit.s.sind")) %>%
+#   select(contains("se"))
+
+dfs <- rbind(df)
+# save(predict, file = "homework3_predict.Rdata")
+# save(int_mse, file = "homework3_int_mse.Rdata")
+# save(var_mse, file = "homework3_var_mse.Rdata")
+# save(int_lower, file = "homework3_int_upper.Rdata")
+# save(int_upper, file = "homework3_int_lower.Rdata")
+# save(var_lower, file = "homework3_var_uper.Rdata")
+# save(var_upper, file = "homework3_var_loer.Rdata")
+# save(int_cover, file = "homework3_int_cover.Rdata")
+# save(var_cover, file = "homework3_var_cover.Rdata")
+boxplot(int_mse)
+boxplot(var_mse)
+
+
+mean(int_cover)
+mean(var_cover)
+```
+
+The mses for the two fs are plotted, which I have no idea what is the reason behind it. We did no center no scale on the error terms, which will not be a problem if the assumption of normal distribution holds. the predicts are build on the level of random effect as factor[1]. I am not sure whether that is the correct way for population level mse and coverage calculation.
+
+There is probably something going on the coverage for the f0 is 0, probably due to the shift or rescale on the smooth function. I never full catch the idea of identifiability problem, and you just told me to ignore the too complicated part. Sometime there is identifiability problem, sometimes not. for f1, the coverage is pretty bad too. 
+
+for approximation the 2 times of se interval is used to avoid the normality assumption, but it did not validate the results that much. 
+
+Sorry I just cannot get what do you want from this question. it does not make any sense based on what I get, I do not see what is the big picture here, and I am not sure what should I summarize.
+
+
+## 2b
+
+
+```{r}
+# mse <- rep(NA, 100)
+# mse_sind <- matrix(NA, nrow = 50, ncol = 100)
+# 
+# for (i in 1:100){
+#   predictions <- predict(models[[i]], df[[i]], type = "value")
+#   prob <- plogis(predictions)
+#   
+#   df[[i]]$sq_diff <- (df[[i]]$y - prob)^2
+#   mse[i] <- mean(df[[i]]$sq_diff)
+#   
+#   mse_df <- df[[i]] %>%
+#     group_by(sind) %>%
+#     summarise(mse_sind = mean(sq_diff)) 
+# 
+#   mse_sind[, i] <- as.vector(mse_df$mse_sind)
+# }
+# 
+# save(mse_sind, file = "13_homework_question2_mse_sind.Rdata")
+# save(mse, file = "13_homework_question2_mse.Rdata")
+
+load("13_homework_question2_mse_sind.Rdata")
+load("13_homework_question2_mse.Rdata")
+
+mse_sind <- mse_sind %>%
+  as.data.frame() %>% 
+  mutate(mse = rowMeans(.),
+         sind = sind)%>%
+  select(sind, mse, everything())
+
+
+mse_sind %>% 
+  ggplot(aes(x = sind, y = mse)) +
+  geom_line(color = "indianred", size = 2) +
+  ggtitle("MSE by sind") +
+  ylab("MSE") +
+  theme_classic()
+
+```
+
+
+1. the variability reaches to the peak around 0.1, 0.5, and 0.9;
+2. the variability is lower at 0.25 and 0.75;
+3. the start and beginning are the same, because using the cyclic cubic spline.
+

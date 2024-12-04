@@ -1,0 +1,94 @@
+---
+title: "04_regression"
+author: "Randy"
+date: "1/12/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 4.7 implementation
+
+```{r}
+rm(list=ls())
+library(refund)
+library(ggplot2)
+library(dplyr)
+library(reshape2)
+```
+
+
+```{r}
+n = 1000
+grid = seq(0, 1, length = 101)
+beta = sin(grid * 2 * pi)
+beta = -dnorm(grid, mean=.2, sd=.03) + 
+    3*dnorm(grid, mean=.5, sd=.04) +
+    dnorm(grid, mean=.75, sd=.05)
+```
+
+
+```{r}
+X <- matrix(0, nrow=n, ncol=length(grid))
+
+for(i2 in 1:n){
+    X[i2,]=X[i2,]+rnorm(length(grid), 0, 1)
+    X[i2,]=X[i2,]+runif(1, 0, 5)
+    X[i2,]=X[i2,]+rnorm(1, 1, 0.2)*grid
+    for(j2 in 1:10){
+        e=rnorm(2, 0, 1/j2^(2))
+        X[i2,]=X[i2,]+e[1]*sin((2*pi)*grid*j2)
+        X[i2,]=X[i2,]+e[2]*cos((2*pi)*grid*j2)
+    }
+}
+```
+
+
+
+```{r}
+Y = X %*% beta * .01 + rnorm(n, 0, .4)
+fit.fpcr = pfr(Y ∼ fpc(X))
+# without a penalty, 
+# use k= 3 for the first beta, 
+# and 15 for the second
+# one can verify the efficacy 
+# of these choices by
+# looking at the aic
+fit.lin = pfr(Y ∼ lf(X, bs = "ps", k = 15, fx = TRUE))
+# "ps" stands for "penalized splines", 
+# fx= TRUE means no penalty is used
+fit.pfr = pfr(Y ∼ lf(X, bs = "ps", k = 50))
+# if sp is not specified, data driven smoothing is used
+```
+
+
+```{r}
+coefs = data.frame(grid = grid,
+                   FPCR = coef(fit.fpcr)$value,
+                   Basis = coef(fit.lin)$value,
+                   Penalized = coef(fit.pfr)$value,
+                   Truth = beta)
+
+coefs.m = melt(coefs, id = "grid")
+colnames(coefs.m) = c("grid", "Method", "Value")
+
+## provide control over multiple graphics devices.
+?dev.new
+dev.new(width=6,
+        height=3)
+ggplot(coefs.m, 
+       aes(x = grid, y = Value, 
+           color = Method, 
+           group = Method),
+       width=12,
+       height=6) + 
+    geom_path() + 
+    theme_bw()
+```
+
+
+
+
+

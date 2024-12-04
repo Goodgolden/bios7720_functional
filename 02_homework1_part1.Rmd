@@ -1,0 +1,1080 @@
+---
+title: "02_homework1_part1"
+author: "Randy"
+date: "3/9/2021"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE, cache=TRUE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+
+```{r include=FALSE}
+library("mgcv")
+library("tidymodels")
+library("tidyverse")
+library("here")
+library("janitor")
+library("knitr")
+library("tinytex")
+library("bookdown")
+```
+
+# question1
+## 1a
+
+$$ 
+y_i = f(x_i) + \epsilon_i 
+$$
+$$
+\epsilon_i \sim Normal(0, \sigma_{\epsilon}^2) 
+$$
+
+$$
+f(x_i) = \sum_{k=1}^K\xi_k \ \phi_k(x)
+$$
+
+$$ 
+PENSSE_\lambda = \sum_{i=1}^N (y_i - f(x_i))^2 + \lambda \int{f''(x)^2}dx
+= \sum_{i=1}^N (y_i - f(x_i))^2 + \pmb{\xi^{\top} S \  \xi }
+$$
+
+The continuous function of f(x) must have at least two derivatives. 
+
+$$
+\text{let } \delta_j(x) = \phi''_j(x) \\
+f(x_i) = \sum_{k=1}^K\xi_k \ \phi_k(x_i) \  =\  \pmb{\xi^{\top}\phi(x)} \ =\  \pmb{\phi(x)^{\top} \xi} \\
+$$
+
+$$
+f''(x_i) = \pmb{\xi^{\top}\delta(x)} = \pmb{\delta(x)^{\top} \xi}  
+$$
+$$ 
+\lambda \int{f''(x)^2}dx = \lambda \ \pmb{\xi^{\top}} 
+\bigg( \int \pmb{\delta(t) \delta^{\top}(t)} dt\ \bigg) \ \pmb{\xi^{\top}} 
+$$
+$$
+let \ \ \ \pmb{S} = \int \pmb{\delta(t) \ \delta^{\top}(t)} dt\ 
+$$
+$$
+PENSSE_\lambda = \sum_{i=1}^N (y_i - f(x_i))^2 + \pmb{\xi^{\top} S \  \xi }
+$$
+
+
+## 1b
+
+$$
+f(x_i) = \sum_{k=0}^3\xi_k \ x^k \ = \xi_0 + \xi_1x + \xi_2x^2 + \xi_3x^3 \\
+f'(x) = \xi_1 + 2\xi_2x + 3\xi_3x^2 \\
+f''(x) = 2\xi_2 + 6\xi_3x = 
+\pmb{\xi^{\top}\delta(x)}
+\\
+\pmb {\delta(x)} = [0, 0, 2, 6x]
+\\
+\pmb{S} = \int \pmb{\delta(t) \ \delta^{\top}(t)} dt
+$$
+
+$$
+\pmb {\delta(t) \delta^{\top}(t)}=
+\begin{bmatrix}
+0, 0, \ \ \ \ 0,\ \ \ \ \ \ 0\\
+0, 0, \ \ \ \ 0,\ \ \ \ \ \ 0\\
+0, 0, \ \ \ \ 4, \ \ 12x\\
+0, 0,     12x, 36x^2
+\end{bmatrix}
+\\
+$$
+
+$$
+\pmb{S} = \int^{10}_{0} \pmb{\delta(t) \ \delta^{\top}(t)} dt =
+\begin{bmatrix}
+0, 0, \ \ \ \ \ \ \ 0,\ \ \ \ \ \ \ \ \ 0\\
+0, 0, \ \ \ \ \ \ \ 0,\ \ \ \ \ \ \ \ \ 0\\
+0, 0,  4x|_0^{10}, \ \ 6x^2|_0^{10}\\
+0, 0,     6x^2|_0^{10}, 12x^3|_0^{10} 
+\end{bmatrix} =
+\begin{bmatrix}
+0, 0, \ \ \ \ 0,\ \ \ \ \ \ \ \ 0\\
+0, 0, \ \ \ \ 0,\ \ \ \ \ \ \ \ 0\\
+0, 0, \ \  40, \ \ \ \ 600\\
+0, 0,     600, 12000 
+\end{bmatrix}
+$$
+
+
+## 1c
+$$
+PENSSE_\lambda = \sum_{i=1}^N (y_i - f(x_i))^2 + \lambda\ \pmb{\xi^{\top} S \  \xi } \\
+= \| \pmb{y} - \pmb{\Phi \xi} \|^2 + \
+\lambda\ \pmb{\xi^{\top} S \xi } 
+\\
+= (\pmb{y} - \pmb{\Phi \xi})^{\top}(\pmb{y} - \pmb{\Phi \xi}) +
+\lambda\ \pmb{\xi^{\top} S \  \xi }
+\\
+= \pmb{y}^{\top} \pmb{y} - 2\pmb{\xi}^{\top}\pmb{\Phi}^{\top}\pmb{y} + \pmb{\xi}^{\top}(\pmb{\Phi^{\top}\Phi)} \pmb{\xi} +
+\lambda\ \pmb{\xi^{\top} S \  \xi } \\
+= \pmb{y}^{\top} \pmb{y} - 2\pmb{\xi}^{\top}\pmb{\Phi}^{\top}\pmb{y} + \pmb{\xi}^{\top}(\pmb{\Phi^{\top}\Phi + \lambda S)} \pmb{\xi}
+$$
+
+$$
+\nabla_{\pmb {\xi}} PENSSE_{\lambda}  = 
+-2\pmb{\Phi^{\top} y} + 2(\pmb{\Phi^{\top}\Phi} + 
+\lambda \pmb {S})\pmb{\xi} \stackrel{set}{=} 0
+$$
+
+$$
+2(\pmb {\Phi^{\top} \Phi} + 
+\lambda \pmb {S})\pmb{\xi} = 2\pmb{\Phi^{\top} y}
+$$
+
+$$
+\hat {\pmb{\xi}} = (\pmb{\Phi^{\top}\Phi + 
+\lambda S})^{-1} \pmb{\Phi^{\top} y}
+$$
+
+$$
+\nabla^2_{\pmb {\xi}} PENSSE_{\lambda} = 
+2(\pmb{\Phi^{\top}\Phi + \lambda S}) > 0
+$$
+
+$$
+\hat{\xi} \ minimized\  the\  PENSSE_{\lambda}
+$$
+
+$$
+Cov(\pmb y) = \sigma^2 \pmb {\mathcal I} 
+$$
+
+$$
+Cov(\hat \xi) = (\pmb{\Phi^{\top}\Phi + \lambda S})^{-1} \pmb{\Phi^{\top} }
+                Cov(y)
+                \pmb{\Phi}(\pmb{\Phi^{\top}\Phi} + \lambda \pmb {S})^{-1}
+                \\
+                = \sigma^2(\pmb{\Phi^{\top}\Phi} + \lambda \pmb {S})^{-2}
+$$
+
+## 1d
+$$
+\hat {\pmb{\xi}} = (\pmb{\Phi^{\top}\Phi + 
+\lambda S})^{-1} \pmb{\Phi^{\top} y}
+\\
+\pmb H = \pmb{\Phi}(\pmb{\Phi^{\top}\Phi + 
+\lambda S})^{-1} \pmb{\Phi^{\top} }
+\\
+\hat{f}(x|\lambda) = \pmb{\Phi \hat \xi} = \pmb {H y}
+\\
+Var[\hat{f}(x|\lambda)] = Var[\pmb{Hy}] 
+= \pmb{H} Var[\pmb y] \pmb{H^\top} 
+\\
+(\text{H is the hat matrix not a vector.}）
+\\
+$$
+
+## 1e
+
+now we define the equation holds for the augmented matrices:
+$$
+\begin{Vmatrix}
+\begin{bmatrix}
+y\\ \pmb {\mathcal a} 
+\end{bmatrix} -
+\begin{bmatrix}
+\pmb{\Phi} \\
+\pmb {\mathcal B} 
+\end{bmatrix} \pmb {\xi} 
+\end{Vmatrix} ^ 2 =
+\|y - \Phi \pmb {\xi} \|^2 + 
+\| \mathcal a - \mathcal B \pmb {\xi} \|^2 
+\\
+= \|y - \Phi \pmb {\xi}\|^2 + 
+\lambda \pmb {\xi^{\top} S \pmb {\xi}}
+\\
+= \|y - \Phi \pmb{\xi}\|^2 + 
+\lambda \pmb{\xi^{\top} D^{\top} D \xi}
+$$
+
+$$
+\| \pmb {\mathcal a} - \pmb{\mathcal B \xi} \|^2 
+\\
+= (\pmb a - \pmb {\mathcal B \xi})^{\top}(\pmb {a- \mathcal B\xi})
+\\
+= \pmb{ a^{\top}a - 2\xi^{\top}\mathcal B ^{\top}a + \xi^{\top}\mathcal B^{\top} \mathcal B \xi }
+\\
+= (\pmb{ a^{\top} - 2\xi^{\top}B^{\top})a +  \xi^{\top}\mathcal B^{\top} \mathcal B \xi}
+\\ 
+= \lambda \pmb {\xi^{\top}D^{\top}D  \xi}
+$$
+
+$$
+\text{To make the the equation work:} \\ 
+\lambda \pmb \xi^{\top} \pmb D^{\top}\pmb D \xi
+= \lambda \pmb {\xi^{\top} S \xi}
+\\
+(\pmb{ a^{\top} - 2\xi^{\top} \mathcal B^{\top})a} =0, \forall \ \pmb{\mathcal B} ,  \pmb{\xi} 
+\\
+Then, \ \pmb a =  \pmb 0, \ and \ \pmb{\mathcal B} = \lambda^{1/2} \pmb D
+$$
+
+## 1f
+
+The parameters depend on each other, so it is computational challenging. For a likelihood function depends on more than one parameters, the profile likelihood should be applied. 
+
+
+# question2
+```{r message=FALSE, warning=FALSE}
+set.seed(5520)
+N <- 100
+sigma = 0.5
+f <- function(x) cos(2 * pi * x)
+x <- runif(N, min = -1, max = 1)
+y <- f(x) + rnorm(N, mean = 0, sd = sigma)
+
+## choose the lambda
+## choose a very large value of K
+## cross validation
+sm_cr <-
+  ## directly from the lecture2 notes
+  mgcv::smoothCon(
+    s(x, ## a list of variables as covariates
+      ## this smooth is a function of
+      bs = "cr",
+      ## bs for penalized smoothing basis
+      ## cr for cubic regression spline
+      k = 25),
+    data = data.frame(x = x))
+## get the "S" matrix
+s_matrix <- sm_cr[[1]]$S[[1]]
+
+nlambda <- 1000
+loglambda <- seq(-10, 20, len = nlambda)
+
+phi <- sm_cr[[1]]$X
+## get the spline basis matrix
+## the design matrix
+# phi_phi <- t(Phi) %*% Phi
+# phi_prod <- crossprod(Phi)
+# identical(phi_phi, phi_prod)
+
+mse_cv <- yhat <- yse <- rep(NA, nlambda)
+for (i in seq_along(1:nlambda)) {
+  ## do the cross-validation
+  ## to get the inverse matrix
+  ## the standard R function with solve()
+  solution <- solve(crossprod(phi) + 
+                      exp(loglambda[i]) * s_matrix)
+  ## A is the influence hat matrix
+  h_matrix <- phi %*% solution %*% t(phi)
+  yhat[i] <- h_matrix %*% y
+  yse[i] <- norm(h_matrix) %*% sd(y)
+  ## mean square error cross validation
+  mse_cv[i] <- mean((yhat[i] - y)^2 / 
+                      (1 - diag(h_matrix))^2)
+}
+
+loglambda[which.min(mse_cv)]
+lambda_min <- loglambda[which.min(mse_cv)] %>% exp()
+lambda_min
+
+
+```
+
+write it up in a function
+```{r}
+#' @description function to get the optimal penalty parameter
+#' @para phi the smooth basis from the original data
+#' @para s_matrix the penalty matrix 
+#' @para y outcome vector
+#' @para nl the number of lambda in the trial
+#' @para llmin the minimum of the log lambda 
+#' @para llmax the maximum of the log lambda
+#' @para tolerance for the inverse function to avoid singularity
+#' @example see below the function
+get_lambda <- function(phi, 
+                      s_matrix, 
+                      y,
+                      nl = 1000, 
+                      llmin = -10, 
+                      llmax = 10,
+                      tolerance = 1e-26) {
+
+  loglambda <- seq(llmin, llmax, len = nl)
+  
+  mse_cv <- rep(NA, nlambda)
+  for (i in 1:nlambda) {
+    ## do the cross-validation
+    ## to get the inverse matrix
+    ## the standard R function with solve()
+    solution <- solve(crossprod(phi) + 
+                      exp(loglambda[i]) * s_matrix,
+                      tol = tolerance)
+    ## A is the influence hat matrix
+    h_matrix <- phi %*% solution %*% t(phi)
+    yhat <- h_matrix %*% y
+    ## mean square error cross validation
+    mse_cv[i] <- mean((yhat - y)^2 / (1 - diag(h_matrix))^2)
+    }
+  lambda_min <- loglambda[which.min(mse_cv)] %>% exp()
+  return(lambda_min)
+}
+```
+
+
+```{r}
+get_xi <- 
+  function(y, phi, s_matrix, lambda){
+    solution <- solve(crossprod(phi) + lambda * s_matrix)
+    xi <- solution %*% t(phi) %*% y %>%
+      as.data.frame() %>%
+      select("est_xi" = 1)
+    var_xi <- solution %*% t(phi) %*% 
+              (cov(y, y) * diag(length(y))) %*% 
+              phi %*% solution 
+    
+    se_xi <- var_xi %>%
+      diag() %>%
+      sqrt()
+    
+    se_yfit <- phi %*% var_xi %*% t(phi) %>%
+      diag() %>%
+      sqrt()
+    # Tue Mar 16 14:54:01 2021 ------------------------------
+    
+    xi_table <- cbind(xi, se_xi, se_yfit) %>%
+      as.data.frame() 
+    
+    h_matrix <- phi %*% solution %*% t(phi)
+    yhat <- h_matrix %*% y
+    yse <- norm(h_matrix) %*% cov(y, y) %>%
+      diag() %>% sqrt()
+    ## mean square error cross validation
+    attr(xi_table, "yhat") <- yhat
+    attr(xi_table, "yse") <- yse
+    
+    return(xi_table)
+  }
+
+xi <- get_xi(y, phi, s_matrix, lambda_min)
+xi %>% 
+  select(est_xi, se_xi) %>%
+  head(10) %>%
+  mutate(var_xi = se_xi^2) 
+
+## this is for question3b,
+## just please do not do this again....
+yhat <- get_xi(y, phi, s_matrix, lambda_min) %>%
+  attr("yhat")
+yse <- get_xi(y, phi, s_matrix, lambda_min) %>%
+  attr("yse") 
+
+ypred_2 <-
+  cbind(x, yhat, yse) %>%
+  data.frame() %>%
+  mutate(lower = yhat - 2 * yse,
+         upper = yhat + 2 * yse,
+         question = "question2") %>%
+  select(yhat = 2, everything())
+```
+
+# question3
+## 3a
+
+$$
+\epsilon_i \sim Normal(0, \ \sigma_{\epsilon}^2),
+\\
+\epsilon_i = y_i - f(x_i) = y_i - \sum_{k=1}^K\xi_k \phi_k(x_i),
+\\
+\pmb V \equiv Cov (\pmb {\epsilon}) = \sigma_{\epsilon}^2 \pmb {\mathcal I}
+\\
+l(\pmb \xi, \sigma^2_{\epsilon}|\pmb y, \pmb \Phi( \pmb x)) = 
+-\frac {nlog(2\pi \sigma_{\epsilon}^2)} {2}-\sum_{i=1}^n (y_i - \sum_{k=1}^K\xi_k \phi_k(x_i))^2 /2\sigma^2_{\epsilon} 
+\\
+= -\frac {nlog(2\pi) + log|\pmb V|+ (\pmb y- \pmb \Phi \pmb{\xi})^{\top} \pmb V ^{-1} (\pmb {y- \Phi\xi})} {2}
+$$
+
+$$
+pl(\pmb \xi, \sigma^2_{\epsilon}|\pmb y, \pmb \Phi( \pmb x), \lambda) = 
+l(\pmb \xi, \sigma^2_{\epsilon}|\pmb y, \pmb \Phi( \pmb x)) - 0.5\lambda \pmb {\xi^{\top} S \xi}
+\\
+= - \frac {nlog(2\pi) + log|V|+ 
+(\pmb y- \pmb \Phi \pmb{\xi})^{\top}V^{-1} (\pmb {y- \Phi \xi})} {2} - 0.5\lambda \pmb {\xi^{\top} S \xi}
+\\
+\nabla_{\pmb \xi} \ \mathcal pl(\pmb \xi, \sigma^2_{\epsilon}|\pmb y,\pmb\Phi ( \pmb x), \lambda) \stackrel{set}{=} 0
+\\
+\pmb{\Phi^{\top}V^{-1}(y - \Phi\xi)} - \lambda \pmb  {S \xi} \stackrel{set}{=} 0
+\\
+\pmb{\Phi^{\top}V^{-1}\Phi\xi} + \lambda \pmb  {S \xi} = \pmb {\Phi^{\top}V^{-1}y}
+\\
+\pmb {\hat \xi} = \pmb{(\Phi^{\top}V^{-1}\Phi} + \lambda \pmb {S})^{-1} \pmb{\Phi^{\top}V^{-1}y}
+\\
+=\pmb{(\Phi^{\top} \Phi} + \sigma_{\epsilon}^2  \lambda \pmb {S})^{-1} \pmb{\Phi^{\top} y}
+$$
+
+$$
+\\
+\nabla^2_{\pmb \xi} \ \mathcal pl(\pmb \xi, \sigma^2_{\epsilon}|\pmb y,\pmb\Phi(\pmb{x}), \lambda) = 
+- \pmb {\Phi^{\top}V^{-1}\Phi} - \lambda \pmb{S}= - \pmb {\mathcal I_n(\hat \xi)}
+\\
+\pmb {\hat \xi} \sim Normal(\pmb \xi, \pmb {\mathcal I_n(\hat \xi)}^{-1})
+\\
+Cov(\pmb{\hat\xi}) = (\pmb {\Phi^{\top}V^{-1}\Phi} + \lambda \pmb{S})^{-1}
+\\
+Var[\pmb{\hat\xi}] = diag\big((\pmb {\Phi^{\top}V^{-1}\Phi} + \lambda \pmb{S})^{-1}\big)
+\\
+\hat {Var}[\hat\xi_k]= \sqrt [] {diagonal \ k^{th}\ of\
+(\pmb {\Phi^{\top}V^{-1}\Phi} + \lambda \pmb{S})^{-1} }
+$$
+
+1) by default the optim() function performs minimization 
+(as opposed to maximization)
+2) optimize on the log-likelihood scale
+3) using the optim() function, 
+set the argument hessian = TRUE to obtain the Hessian matrix
+
+```{r}
+
+
+```
+
+```{r}
+set.seed(555)
+xi_sim <- 
+  optim(rep(500, 25),
+        fn = get_maxpl,
+        ## use quasi newton
+        method = "BFGS", 
+        ## keep the hessian
+        hessian = TRUE,
+        lambda = lambda_min,
+        sigma = sigma,
+        X = x,
+        y = y)
+est_xi3 <- xi_sim$par
+## variance is the inverse of the hessian
+se_xi3 <- solve(xi_sim$hessian) %>%
+  diag() %>%
+  sqrt()
+
+# get_maxpl(est_xi3, lambda_min, sigma, x, y) %>%
+#   attr("xi_hat") %>%
+#   unlist() 
+# get_maxpl(est_xi3, lambda_min, sigma, x, y) %>%
+#   attr("xi_se") 
+## Sat Mar 13 16:56:47 2021 ------------------------------
+## xi_hat use 2 times of the penalty terms
+# [1,]  0.7058491 # [2,]  0.6602813 # [3,]  0.1364618 # [4,] -0.4658330
+# [5,] -0.5886410 # [6,] -0.7478183 # [7,] -0.7407876 # [8,] -0.8627927
+# [9,] -0.9326031 # [10,] -0.6079508 # [11,] -0.1056475 # [12,]  0.5074190
+# [13,]  0.9322000 # [14,]  0.8950186 # [15,]  0.5166366 # [16,]  0.1626429
+# [17,] -0.3897756 # [18,] -0.7906138 # [19,] -0.7254311 # [20,] -0.8621898
+# [21,] -0.8276467 # [22,] -0.1506179 # [23,]  0.6910463 # [24,]  1.1297209
+# [25,]  1.8903166
+# Sat Mar 13 16:57:22 2021 ------------------------------
+```
+
+## 3b
+```{r}
+# get_maxpl(est_xi3, lambda_min, sigma, x, y) %>%
+#   attr("h") 
+yhat <- get_maxpl(est_xi3, lambda_min, sigma, x, y) %>%
+  attr("yhat")
+yse <- get_maxpl(est_xi3, lambda_min, sigma, x, y) %>%
+  attr("yse") 
+
+ypred_3 <-
+  cbind(x, yhat, yse) %>%
+  data.frame() %>%
+  mutate(lower = yhat - 2 * yse,
+         upper = yhat + 2 * yse,
+         question = "question3") %>%
+  select(yhat = 2, everything())
+
+rbind(ypred_2, ypred_3) %>%
+  ggplot() +
+  geom_line(aes(x = x, y = yhat, 
+                group = question, color = question) ) +
+  geom_line(aes(x = x, y = upper, group = question, color = question),
+            linetype = "dashed") +
+  geom_line(aes(x = x, y = lower, group = question, color = question),
+            linetype = "dashed") + 
+  theme_classic()
+
+```
+The estimated trajectory and confidence interval from two different methods are 
+exactly the same as each other. The cross-validation is consistent with penalized maximum likelihood estimation 
+
+
+# question4
+## 4a
+
+The ploy() did not include an intercept term in matrix;
+the extra column and row of 1 can be added manually (but not included in this homework).
+```{r}
+set.seed(19870)
+
+N <- 1000
+f <- function(x, a) a * x^2
+x1 <- runif(N, 0, 1)
+y1 <- f(x1, a = 5) + rnorm(N, sd = 0.5)
+x2 <- rexp(N, rate = 1 / 100)
+y2 <- f(x2, a = 1e-05) + rnorm(N, sd = 0.5)
+K = 5
+data4 <- data.frame(y1, y2, x1, x2)
+
+phi_1 <- poly(x1, k = K, raw = TRUE)
+phi_2 <- poly(x2, k = K, raw = TRUE)
+
+## build the penalty matrix S_x
+S_x1 <- matrix(rep(NA, K * K), nrow = K, ncol = K)
+for (i in 1:K) {
+  for (j in 1:K) {
+    ## the derivative for the equation
+    fun <- function(t) i * (i - 1) * t^(i + j - 4) * j * (j - 1)
+    ## integrate over the range of x
+    a <- integrate(fun, lower = min(x1), upper = max(x1))
+    S_x1[j, i] <- a$value
+  }
+}
+S_x2 <- matrix(rep(NA, K * K), nrow = K, ncol = K)
+for (i in 1:K) {
+  for (j in 1:K) {
+    ## the derivative for the equation
+    fun <- function(t) i * (i - 1) * t^(i + j - 4) * j * (j - 1)
+    ## integrate over the range of x
+    a <- integrate(fun, lower = min(x2), upper = max(x2))
+    S_x2[j, i] <- a$value
+  }
+}
+
+S_x1
+S_x2
+```
+
+## 4b 
+unpenalized least squares
+
+```{r}
+xi_4b_hat1 <- solve(t(phi_1) %*% phi_1) %*% t(phi_1) %*% y1
+xi_4b_hat2 <- solve(t(phi_2) %*% phi_2, tol = 1e-26) %*% t(phi_2) %*% y2
+xi_4b_gin2 <- MASS::ginv(t(phi_2) %*% phi_2) %*% t(phi_2) %*% y2
+
+xi_4b_cov1 <- 
+  solve(t(phi_1) %*% phi_1) %*% t(phi_1) %*% 
+  (cov(y1, y1) * diag(length(y1))) %*% 
+  phi_1 %*% solve(t(phi_1) %*% phi_1) 
+xi_4b_cov2 <- 
+  solve(t(phi_2) %*% phi_2, tol = 1e-26) %*% t(phi_2) %*% 
+  (cov(y2, y2) * diag(length(y2))) %*% 
+  phi_2 %*% solve(t(phi_2) %*% phi_2, tol = 1e-26) 
+
+xi_4b_hat1
+xi_4b_hat2
+xi_4b_gin2
+# Fri Mar 26 21:43:45 2021 ------------------------------
+gam4_reml1 <- gam(y1 ~ phi_1 - 1,
+              method = "REML",
+              family = gaussian(),
+              data = data4)
+gam4_reml2 <- gam(y2 ~ phi_2 - 1,
+              method = "REML",
+              family = gaussian(),
+              data = data4)
+coef(gam4_reml1)
+coef(gam4_reml2)
+```
+
+## 4c 
+penalized mean error square
+
+```{r message=FALSE, warning=FALSE}
+# lambda1 <- get_lambda(phi = phi_1, s_matrix = S_x1, y = y1)
+## reset the loglambda upper bound to 50,
+## increasing tolerance for inverse function to 1e-100 
+# lambda2 <- get_lambda(phi = phi_2, s_matrix = S_x2, y = y2, llmax = 50, tol = 1e-100)
+lambda1 <- 0.003944
+lambda2 <- 2114998
+xi_4c_hat1 <- solve(t(phi_1) %*% phi_1 + 0.25 * lambda1 * S_x1) %*% t(phi_1) %*% y1
+xi_4c_hat2 <- solve(t(phi_2) %*% phi_2 + 0.25 * lambda2 * S_x2, tol = 1e-26) %*% t(phi_2) %*% y2
+xi_4c_gin2 <- MASS::ginv(t(phi_2) %*% phi_2 + 0.25 * lambda2 * S_x2) %*% t(phi_2) %*% y2
+
+xi_4c_cov1 <- 
+  solve(t(phi_1) %*% phi_1 + 0.25 * lambda1 * S_x1) %*% t(phi_1) %*% 
+  (cov(y1, y1) * diag(length(y1))) %*% 
+  phi_1 %*% solve(t(phi_1) %*% phi_1 + 0.25 * lambda1 * S_x1)
+xi_4c_cov2 <- 
+  solve(t(phi_2) %*% phi_2 + 0.25 * lambda2 * S_x2, tol = 1e-26) %*% t(phi_2) %*% 
+  (cov(y2, y2) * diag(length(y2))) %*% 
+  phi_2 %*% solve(t(phi_2) %*% phi_2 + 0.25 * lambda2 * S_x2, tol = 1e-26)
+
+xi_4c_hat1
+xi_4c_hat2
+xi_4c_gin2
+
+## checking with the gam or lm functions
+gam4_gcv1 <- gam(y1 ~ phi_1 + 0,
+              method = "GCV.Cp",
+              family = gaussian(), 
+              sp = -lambda1,
+              data = data4)
+gam4_gcv2 <- gam(y2 ~ phi_2 + 0,
+              method = "GCV.Cp", 
+              family = gaussian(), 
+              sp = -lambda2,
+              data = data4)
+coef(gam4_gcv1)
+coef(gam4_gcv2)
+## get estimated coefficients
+## from gam with the sp = -lambda
+# phi_11     phi_12     phi_13     phi_14     phi_15 
+# 1.258018  -7.782146  40.321256 -49.585510  20.847280 
+# phi_21        phi_22        phi_23        phi_24        phi_25 
+# 2.343784e-12  4.647032e-10  7.040575e-08 -1.441064e-10  9.020567e-14 
+```
+
+## 4d
+
+```{r}
+#' @description function to plot the prediction of outcomes with 95% CI
+#' @para x the independent variables
+#' @para y the outcomes
+#' @para data the original dataset
+#' @para phi the spline terms base on the independent variables
+#' @para est the estimators calculated by hand
+#' @para cov the variance-covariance matrix of the estimator
+#' @example see below the function
+get_est_plot <- function(x, y, 
+                         data, phi,
+                         est, cov) {
+  y_hat <- phi %*% est
+  y_se <- phi %*% cov %*% t(phi) %>%
+    diag() %>%
+    sqrt()
+  
+  plot <-  ggplot() +
+    geom_point(aes(x, y), data = data, col = "grey", alpha = 0.5) +
+    geom_line(aes(x, y_hat), col = "red") +
+    geom_line(aes(x, y_hat + 1.96 * y_se), col = "brown") +
+    geom_line(aes(x, y_hat - 1.96 * y_se), col = "brown") +
+    theme_bw()
+  return(plot)
+}
+
+get_est_plot(x1, y1, data4, phi = phi_1, est = xi_4b_hat1, cov = xi_4b_cov1)
+get_est_plot(x2, y2, data4, phi = phi_2, est = xi_4b_hat2, cov = xi_4b_cov2)
+get_est_plot(x1, y1, data4, phi = phi_1, est = xi_4c_hat1, cov = xi_4c_cov1)
+get_est_plot(x2, y2, data4, phi = phi_2, est = xi_4c_hat2, cov = xi_4c_cov2)
+```
+
+```{r eval=FALSE, include=TRUE}
+## not sure what is going on here
+## there is some pathological behavior
+## for the gam() and lm() function
+
+get_gam_plot <- function(x, y, length = 1000,
+                         data, model){
+  xind_pred<- seq(min(x), max(x),len = 100)
+  df_new <- data.frame(x = xind_pred)
+  model = gam4_reml1
+  predict <- predict(model,
+                     newdata = df_new,
+                     type = "response",
+                     se.fit = TRUE)
+  ## Sat Mar 27 12:20:47 2021 ------------------------------
+  ## not exactly sure what is going on
+  ## the broom.mixed::augment does not work here
+  # broom::augment(model)
+  plot_data <- data.frame(predict$fit, predict$se.fit, xind_pred) %>%
+    select("pred" = 1, "se" = 2, "x" =3) %>%
+    mutate(upper = pred + 1.96 * se,
+           lower = pred - 1.96 * se)
+
+  plot <- plot_data %>%
+    ggplot() +
+    geom_point(aes(x = x, y = y), data = data, color="grey", alpha = 0.5) +
+    geom_line(aes(x = x, y = pred), color = "red") +
+    geom_line(aes(x = x, y = upper), color = "brown") +
+    geom_line(aes(x = x, y = lower), color = "brown") +
+    theme_classic()
+  plot
+  return(plot)
+}
+
+get_gam_plot(x = x1, y = y1, data = data4, model = gam4_reml1)
+get_gam_plot(x = x2, y = y2, data = data4, model = gam4_reml2)
+get_gam_plot(x = x1, y = y1, data = data4, model = gam4_gcv1)
+get_gam_plot(x = x2, y = y2, data = data4, model = gam4_gcv2)
+```
+
+
+## 4e
+the change rate of polynomial gets large, 
+and lambda gets to infinity; 
+very large penalty add to the model so the model is exact linear form.
+
+```{r}
+## set lambda to a very large number
+lambda3 <- 1e99
+xi_4e_hat1 <- 
+  solve(t(phi_1) %*% phi_1 + 0.25 * lambda3 * S_x1, tol = 1e-200) %*% t(phi_1) %*% y1
+xi_4e_cov1 <- 
+  solve(t(phi_1) %*% phi_1 + 0.25 * lambda3 * S_x1, tol = 1e-200) %*% t(phi_1) %*% 
+  (cov(y1, y1) * diag(length(y1))) %*% 
+  phi_1 %*% solve(t(phi_1) %*% phi_1 + 0.25 * lambda3 * S_x1, tol = 1e-200)
+xi_4e_hat2 <- 
+  solve(t(phi_2) %*% phi_2 + 0.25 * lambda3 * S_x2, tol = 1e-200) %*% t(phi_2) %*% y2
+xi_4e_cov2 <- 
+  solve(t(phi_2) %*% phi_2 + 0.25 * lambda3 * S_x2, tol = 1e-200) %*% t(phi_2) %*% 
+  (cov(y2, y2) * diag(length(y2))) %*% 
+  phi_2 %*% solve(t(phi_2) %*% phi_2 + 0.25 * lambda3 * S_x2, tol = 1e-200)
+
+get_est_plot(x1, y1, data4, phi = phi_1, 
+             est = xi_4e_hat1, cov = xi_4e_cov1)
+get_est_plot(x2, y2, data4, phi = phi_2, 
+             est = xi_4e_hat2, cov = xi_4e_cov2)
+```
+
+In this case only the linear term does not suffer the heavy penalty on the wiggli-ness.
+so when the smooth parameter goes to infinity, the fitted model will be simply a simple linear regression.
+
+# question5
+
+I just realized that I mistakenly set the error standard deviance as 05, other than 0.5.
+The bias and mse from the simulated data is pretty large.  
+I used gam() fit the model and I just do not want to write all the thing manually again. 
+```{r}
+set.seed(555)
+
+#' @description definitely should not write this functioon
+#' @para N simulation numbers
+#' @para K function numbers
+#' @para f_list a list of K functions
+#' @para sigma variance for the error term
+#' @para bs spline regression form in s
+#' @para method the gam() estimation methods
+#' @example see below
+simulate_gam <- function(N = 200, 
+                         K = 3, 
+                         f_list, 
+                         sigma = 05,
+                         bs = "cr", 
+                         knot = 10,
+                         method = "GCV.Cp") {
+  if (K == length(f_list)) {
+    X <- matrix(rnorm(N * K), N, K)
+    i <- 1
+    formula <- "y ~ 1"
+    for (i in 1:K) {
+      eta <- 1 + f_list[[i]](X[, i])
+      term <- paste0("s(X", i, ", bs = '",
+                     bs, "', k = ", knot, ")")
+      formula <- paste0(formula, " + ", term)
+    }
+    ## Sun Mar 28 09:09:21 2021 ------------------------------
+    ## I made the gam more complicated than required
+    y <- eta + rnorm(N, sd = sigma)
+    df_fit <- data.frame(X, y)
+    formula <- as.formula(formula)
+    fit <- mgcv::gam(formula,
+                     method = method,
+                     data = df_fit)
+  
+    nx_pred <- 1000
+    xind_pred <- lapply(1:K,
+                        function(x) {
+                        rn_x <- range(X[, x])
+                        seq(rn_x[1], rn_x[2], len = nx_pred)
+                      })
+    ## Sat Mar 27 20:07:40 2021 ------------------------------
+    ## this part is removed because the graphes do not work
+    # par(mfrow = c(2, 2))
+    # for (p in 1:K) {
+    #   plot(fit,
+    #        select = p,
+    #        residuals = TRUE,
+    #        shade = TRUE)
+    #   lines(xind_pred[[p]],
+    #         f_list[[p]](xind_pred[[p]]),
+    #         col = "red",
+    #         lwd = 2,
+    #         lty = 2)
+    # }
+  } else {
+    print("number of functions is not consistent")
+    break
+  }
+  augment <- broom::augment(fit) %>%
+    mutate(bias = abs(.resid),
+           # var = var(.resid),
+           ## mse is the bias^2 + variance
+           mse = .resid^2 + .se.fit^2,
+           cover = case_when((y >= .fitted - 1.96 * .se.fit) & 
+                               (y <= .fitted + 1.96 * .se.fit) ~ 1,
+                             TRUE ~ 0))
+  ## Sun Mar 28 09:08:44 2021 ------------------------------
+  ## add bias mse and coverage
+  return(list(mean(augment$bias),
+              mean(augment$mse),
+              mean(augment$cover),
+              # broom::tidy(fit), 
+              # broom::glance(fit),
+              ## save augment here just in case 
+              augment))
+}
+```
+
+```{r eval=FALSE, include=TRUE}
+# f1 <- function(x) sin(pi * x) / (x + 1)
+# f2 <- function(x) sin(pi * x / 2) * x
+# f3 <- function(x) sin(pi * x / 4)
+# f4 <- function(x) cos(pi * x)
+# f5 <- function(x) cos(pi * x / 2) * x^2
+# f6 <- function(x) sin(pi * x) * x + cos(pi * x) * x
+# 
+# sim3p <- sim2p <- sim4p <- list()
+# sim3u <- sim2u <- sim4u <- list()
+# for (i in 1:1000) {
+#   sim3p[[i]] <- purrr::map2(.x = rep(c(200, 300, 500), times = 3),
+#                .y = list(list(f1, f3, f4),
+#                          list(f1, f3, f5),
+#                          list(f2, f3, f4),
+#                          list(f1, f3, f4),
+#                          list(f1, f3, f5),
+#                          list(f2, f3, f4),
+#                          list(f1, f3, f4),
+#                          list(f1, f3, f5),
+#                          list(f2, f3, f4)),
+#                ~ simulate_gam(N = .x, K = 3,
+#                               f_list = .y)) %>%
+#               array()
+#   sim3u[[i]] <- purrr::map2(.x = rep(c(200, 300, 500), times = 3),
+#                .y = list(list(f1, f3, f4),
+#                          list(f1, f3, f5),
+#                          list(f2, f3, f4),
+#                          list(f1, f3, f4),
+#                          list(f1, f3, f5),
+#                          list(f2, f3, f4),
+#                          list(f1, f3, f4),
+#                          list(f1, f3, f5),
+#                          list(f2, f3, f4)),
+#                ~ simulate_gam(N = .x, K = 3,
+#                               f_list = .y,
+#                               method = "REML")) %>%
+#               array()
+#   # Sat Mar 27 20:49:18 2021 ------------------------------
+#   sim2u[[i]] <- purrr::map2(.x = rep(c(200, 300, 500), times = 3),
+#                  .y = list(list(f1, f2),
+#                            list(f4, f3),
+#                            list(f5, f1),
+#                            list(f1, f2),
+#                            list(f4, f3),
+#                            list(f5, f1),
+#                            list(f1, f2),
+#                            list(f4, f3),
+#                            list(f5, f1)),
+#                  ~ simulate_gam(N = .x, K = 2,
+#                                 f_list = .y,
+#                                 method = "REML")) %>%
+#                 array()
+#   sim2p[[i]] <- purrr::map2(.x = rep(c(200, 300, 500), times = 3),
+#                  .y = list(list(f1, f2),
+#                            list(f4, f3),
+#                            list(f5, f1),
+#                            list(f1, f2),
+#                            list(f4, f3),
+#                            list(f5, f1),
+#                            list(f1, f2),
+#                            list(f4, f3),
+#                            list(f5, f1)),
+#                  ~ simulate_gam(N = .x, K = 2,
+#                                 f_list = .y)) %>%
+#                 array()
+#   # Sat Mar 27 20:49:30 2021 ------------------------------
+#   sim4p[[i]] <- purrr::map2(.x = rep(c(200, 300, 500), times = 3),
+#                  .y = list(list(f1, f2, f4, f3),
+#                            list(f4, f3, f5, f6),
+#                            list(f5, f1, f2, f6),
+#                            list(f1, f2, f4, f3),
+#                            list(f4, f3, f5, f6),
+#                            list(f5, f1, f2, f6),
+#                            list(f1, f2, f4, f3),
+#                            list(f4, f3, f5, f6),
+#                            list(f5, f1, f2, f6)),
+#                  ~ simulate_gam(N = .x, K = 4,
+#                                 f_list = .y)) %>%
+#                 array()
+#   sim4u[[i]] <- purrr::map2(.x = rep(c(200, 300, 500), times = 3),
+#                  .y = list(list(f1, f2, f4, f3),
+#                            list(f4, f3, f5, f6),
+#                            list(f5, f1, f2, f6),
+#                            list(f1, f2, f4, f3),
+#                            list(f4, f3, f5, f6),
+#                            list(f5, f1, f2, f6),
+#                            list(f1, f2, f4, f3),
+#                            list(f4, f3, f5, f6),
+#                            list(f5, f1, f2, f6)),
+#                  ~ simulate_gam(N = .x, K = 4,
+#                                 f_list = .y,
+#                                 method = "REML")) %>%
+#                 array()
+#   cat("this is the ", i, "iteration \n")
+# }
+# save(sim2p, file = "simulation_2function_penalized.Rdata")
+# save(sim3p, file = "simulation_3function_penalized.Rdata")
+# save(sim4p, file = "simulation_4function_penalized.Rdata")
+# save(sim2u, file = "simulation_2function_unpenalized.Rdata")
+# save(sim3u, file = "simulation_3function_unpenalized.Rdata")
+# save(sim4u, file = "simulation_4function_unpenalized.Rdata")
+```
+
+```{r}
+load("simulation_2function_penalized.Rdata")
+load("simulation_3function_penalized.Rdata")
+load("simulation_4function_penalized.Rdata")
+load("simulation_2function_unpenalized.Rdata")
+load("simulation_3function_unpenalized.Rdata")
+load("simulation_4function_unpenalized.Rdata")
+
+```
+
+```{r}
+sim2p_bias <- sim3p_bias <- sim4p_bias <-
+  sim2u_bias <- sim3u_bias <- sim4u_bias <- data.frame()
+sim2p_mse <- sim3p_mse <- sim4p_mse <-
+  sim2u_mse <- sim3u_mse <- sim4u_mse <- data.frame()
+sim2p_cover <- sim3p_cover <- sim4p_cover <-
+  sim2u_cover <- sim3u_cover <- sim4u_cover <- data.frame()
+for (j in seq_along(1:9)){
+  for (i in seq_along(1:1000)) {
+    sim2p_bias[j, i] <- sim2p[[i]][[j]][1]
+    sim3p_bias[j, i] <- sim3p[[i]][[j]][1]
+    sim4p_bias[j, i] <- sim4p[[i]][[j]][1]
+    sim2u_bias[j, i] <- sim2u[[i]][[j]][1]
+    sim3u_bias[j, i] <- sim3u[[i]][[j]][1]
+    sim4u_bias[j, i] <- sim4u[[i]][[j]][1]
+
+    sim2p_mse[j, i] <- sim2p[[i]][[j]][2]
+    sim3p_mse[j, i] <- sim3p[[i]][[j]][2]
+    sim4p_mse[j, i] <- sim4p[[i]][[j]][2]
+    sim2u_mse[j, i] <- sim2u[[i]][[j]][2]
+    sim3u_mse[j, i] <- sim3u[[i]][[j]][2]
+    sim4u_mse[j, i] <- sim4u[[i]][[j]][2]
+
+    sim2p_cover[j, i] <- sim2p[[i]][[j]][3]
+    sim3p_cover[j, i] <- sim3p[[i]][[j]][3]
+    sim4p_cover[j, i] <- sim4p[[i]][[j]][3]
+    sim2u_cover[j, i] <- sim2u[[i]][[j]][3]
+    sim3u_cover[j, i] <- sim3u[[i]][[j]][3]
+    sim4u_cover[j, i] <- sim4u[[i]][[j]][3]
+  }
+}
+
+mse <- 
+  rbind(sim2p_mse, sim3p_mse, sim4p_mse,
+        sim2u_mse, sim3u_mse, sim4u_mse) %>%
+  transmute(mse = rowMeans(.)) 
+bias <- 
+  rbind(sim2p_bias, sim3p_bias, sim4p_bias,
+        sim2u_bias, sim3u_bias, sim4u_bias) %>%
+  transmute(bias = rowMeans(.)) 
+cover <- 
+  rbind(sim2p_cover, sim3p_cover, sim4p_cover,
+        sim2u_cover, sim3u_cover, sim4u_cover) %>%
+  transmute(cover = rowMeans(.)) 
+```
+
+```{r}
+result <-  cbind(mse, bias, cover) %>%
+  mutate(`#function` = rep(c("two", "three", "four", 
+                             "two", "three", "four"), each = 9),
+         functions = c(rep(c("f12", "f34", "f51"), 3),
+                       rep(c("f134", "f135", "f234"), 3),
+                       rep(c("f1243", "f4356", "f5126"), 3),
+                       rep(c("f12", "f34", "f51"), 3),
+                       rep(c("f134", "f135", "f234"), 3),
+                       rep(c("f1243", "f4356", "f5126"), 3)),
+         penalty = rep(c("penalized", "unpenalized"), each = 27),
+         simulation = rep(rep(c(200, 300, 500), each = 3), time = 6))
+
+result %>% 
+  filter(simulation == 500, 
+         `#function` == "four") 
+
+result %>% 
+  filter(functions == "f4356") 
+
+result %>% 
+  filter(penalty == "penalized", 
+         simulation == 300)
+
+result %>% 
+  filter(penalty == "unpenalized", 
+         simulation == 300)
+```
+
+The complexity of functions order from easy to hard: f3&4, f1&2, f5&6.
+In conclusion, under the control of simulation times and number of functions, 
+the penalized estimation has smaller mse, smaller bias, and larger 95% CI coverage,
+regarding as a better performance comparing to than unpenalized methods; 
+different penalized strategies share the similar behaviors on the performance:
+with more complicated functions, the model suffers smaller coverage,
+large bias, and large mean square error, which indicate the possibility of overfitting.
+
+Controlling for the complexity (also the number of function), 
+the penalized performs still better than the unpenalized with smaller mse, smaller bias,
+and larger 95% CI coverage. The different penality strategies behave differently 
+increasing simulations: for the penalized, more simulation shows better performance of the model,
+the 95% coverage increased, and both bias and mse decrease at certain level; 
+for the unpenlized, the more simulation indicates worse performance,
+the coverage shrinks with larger simulation number, also with larger mse and bias.
+
+For models with the same simulation number, the more complicated the functions decides 
+the status of underfitting or overfitting; hence the mse and bias varied case by case.
+In general, the more functions included in the model the better the performance.
+
+# question6
+
+$$
+\pmb {\Phi_{N \times K}} = [\pmb c_{N \times 1}, \pmb {\Phi^{'}_{N \times (K-1)}}]
+\\
+\phi_i=[\phi_{i1}, \ ...\ \phi_{iK}]
+\\
+\phi_{ij}^{*}(x) = \phi_{ij}(x) - \frac {1} {N} \sum_{i=1}^N \phi_{ij} (x);
+\\
+\phi_{i1}^{*}(x) = \phi_{i1}(x) - \frac {1} {N} \sum_{i=1}^N \phi_{i1} (x) 
+= c - \frac {1} {N}\sum_{i=1}^N c = 0
+$$
+Because the constant term is subtracted from the matrix, there is only one column of zeros.
+the new basis matrix $\mathcal \Phi^*$ does not contain the constant vector c in the column space, and also less than full rank.
+
+
+$$
+f^*(x) = \pmb{\Phi^*\xi} = \pmb{\Phi\xi} - \pmb {1\ 1^{\top} \Phi \xi}/N = f(x) - \pmb {1}c
+$$
+
+more generally, we can define $1^{\top} \Phi \xi / N = c$
+after pivoting with the constant c to be the first column 
+and then subtraction on the constant vector,
+then the new centralized matrix does not contain the original c anymore.
+Moreover, because the first column is all zeros, 
+the new basis matrix $\mathcal \Phi^*$ is less than full rank.
+
+$$
+\pmb {\Phi^*_{N \times K}} = [\pmb {0_{N \times 1}, \ \Phi^{*'}_{N \times (K-1)}}]
+$$
+The new column mean centered $\mathcal \Phi^*$ does not contain the original constant c vector.
+In practice, we restrict the $1^{\top} \Phi \xi / N = c = 0$ which makes the process much easier.
+We manually 
+$$
+\mathcal {f}(\pmb x) = \pmb{\Phi \xi}
+\\
+\sum_{i=1} ^N f(x_i) = \pmb {1 ^{\top} \Phi \xi} = 0, \text{ for any } \pmb \xi 
+\\
+\text{then, } \pmb {1^{\top} \Phi} = 0
+\\
+\pmb \Phi ^{*} = \pmb{\Phi} - \pmb {1\ 1^{\top} \Phi}/N
+$$
+
+
+

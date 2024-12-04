@@ -1,0 +1,373 @@
+---
+title: "03_gam2"
+author: "Randy"
+date: "3/11/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(mgcv)
+
+set.seed(9344421)
+N <- 500
+X <- cbind(rnorm(N), 
+           sample(c(0, 1), 
+                  size = N, 
+                  replace = TRUE))
+f1 <- function(x) sin(pi * x / 2)
+f2 <- function(x) 0.25 * x^3
+y <- f1(X[, 1]) + f2(X[, 1]) * X[, 2] + rnorm(N)
+df_fit <- data.frame(X, y)
+
+fit <- gam(y ~ s(X1, bs = "cr") + 
+             ## multiply the basis function to the X2
+             s(X1, by = X2, bs = "cr"),
+           method = "REML", 
+           data = df_fit)
+
+nx_pred <- 1000
+xind_pred <- seq(min(df_fit$X1), 
+                 max(df_fit$X1), 
+                 len = nx_pred)
+df_pred <- data.frame(X1 = xind_pred, 
+                      X2 = 1)
+coef_ests <- predict(fit, 
+                     newdata = df_pred, 
+                     type = "terms")
+## s represent the domain of the functional
+## additivity of the basises are too restrictive
+## bivariate smooth
+```
+
+
+```{r}
+set.seed(500)
+N <- 500
+x1 <- runif(N, -3, 3)
+x2 <- runif(N, -3, 3)
+## this is not very possible to use in public health
+f1 <- function(x1, x2) 2 * cos(pi * x1 / 4) * sin(pi * x2 / 2)
+## more plausible in this case
+f2 <- function(x1, x2) sin(pi / 2 + x1) + cos(x2^2 / 4)
+y_x1_x2_f1 <- f1(x1, x2) + rnorm(N)
+y_x1_x2_f2 <- f2(x1, x2) + rnorm(N)
+df_fit <- data.frame(y_x1_x2_f1, y_x1_x2_f2, x1, x2)
+
+
+## fit the two models using 100 basis functions
+fit_tprs_x1_x2_f1_tp <- gam(y_x1_x2_f1 ~ s(x1, x2, k = 30, bs = "tp"),
+                         method = "REML", 
+                         data = df_fit)
+fit_tprs_x1_x2_f2_tp <- gam(y_x1_x2_f2 ~ s(x1, x2, k = 30, bs = "tp"),
+                         method = "REML", 
+                         data = df_fit)
+
+## get estimated coefficients
+# grid of new x1, x2 values to predict on
+x1_pred_tp <- seq(min(x1), 
+               max(x1), 
+               len = nx_pred)
+x2_pred_tp <- seq(min(x2), 
+               max(x2), 
+               len = nx_pred)
+# get all combinations of x1 and x2 values
+df_pred_tp <- expand.grid(x1 = x1_pred_tp, x2 = x2_pred_tp)
+
+# get actual coefficient estimates
+f1hat_x1_x2_tp <- predict(fit_tprs_x1_x2_f1_tp, 
+                       newdata = df_pred_tp, 
+                       ## what is the coefs
+                       type = "terms")
+f2hat_x1_x2_tp <- predict(fit_tprs_x1_x2_f2_tp, 
+                       newdata = df_pred_tp, 
+                       type = "terms")
+
+## plot them
+plt_x1_x2_tp <-
+  data.frame(df_pred_tp,
+    f1hat_tp = f1hat_x1_x2_tp[, "s(x1,x2)"],
+    f2hat_tp = f2hat_x1_x2_tp[, "s(x1,x2)"]) %>%
+  pivot_longer(cols = c("f1hat_tp", "f2hat_tp")) %>%
+  ggplot() +
+  theme_classic(base_size = 18) +
+  geom_raster(aes(x1, x2, fill = value)) +
+  facet_wrap(~name) +
+  scale_fill_gradientn(colours = c("red", "white", "blue"), 
+                       limits = c(-2, 2))
+
+plt_x1_x2_tp
+```
+
+
+
+
+
+
+```{r}
+fit_te_x1_x2_f1_te <- 
+  gam(y_x1_x2_f1 ~ te(x1, x2, 
+                      k = c(10, 10), 
+                      bs = c("cr", "cr")),
+      method = "REML", 
+      data = df_fit)
+fit_te_x1_x2_f2_te <- 
+  gam(y_x1_x2_f2 ~ te(x1, x2, 
+                      k = c(10, 10),
+                      bs = c("cr", "cr")),
+      method = "REML", 
+      data = df_fit)
+
+## get estimated coefficients
+# grid of new x1, x2 values to predict on
+x1_pred_te <- seq(min(df_fit$x1), 
+               max(df_fit$x1), 
+               len = nx_pred)
+x2_pred_te <- seq(min(x2), 
+               max(x2), 
+               len = nx_pred)
+
+# get all combinations of x1 and x2 values
+df_pred_te <- expand.grid(x1 = x1_pred_te, x2 = x2_pred_te)
+# get actual coefficient estimates
+f1hat_x1_x2_te <- predict(fit_te_x1_x2_f1_te, 
+                       newdata = df_pred_te, 
+                       type = "terms")
+f2hat_x1_x2_te <- predict(fit_te_x1_x2_f2_te, 
+                       newdata = df_pred_te, 
+                       type = "terms")
+# plot them
+plt_x1_x2_te <-
+  data.frame(df_pred_te,
+    f1hat_te = f1hat_x1_x2_te[, "te(x1,x2)"],
+    f2hat_te = f2hat_x1_x2_te[, "te(x1,x2)"]) %>%
+  pivot_longer(cols = c("f1hat_te", "f2hat_te")) %>%
+  ggplot() +
+  theme_classic(base_size = 18) +
+  geom_raster(aes(x1, x2, fill = value)) +
+  facet_wrap(~name) +
+  scale_fill_gradientn(colours = c("red", "white", "blue"), limits = c(-2, 2))
+```
+
+
+```{r}
+
+plt_x1_x2_delta <-
+  data.frame(df_pred_te, df_pred_tp, df_fit,
+    f1hat_tp = f1hat_x1_x2_tp[, "s(x1,x2)"],
+    f2hat_tp = f2hat_x1_x2_tp[, "s(x1,x2)"],
+    f1hat_te = f1hat_x1_x2_te[, "te(x1,x2)"],
+    f2hat_te = f2hat_x1_x2_te[, "te(x1,x2)"],
+    f1hat_delta = f1hat_x1_x2_tp[, "s(x1,x2)"]- y_x1_x2_f1,
+    f2hat_delta = f2hat_x1_x2_tp[, "s(x1,x2)"]- y_x1_x2_f2 ) %>%
+  pivot_longer(cols = c("f1hat_delta", "f2hat_delta")) %>%
+  ggplot() +
+  theme_classic(base_size = 18) +
+  geom_raster(aes(x1, x2, fill = value)) +
+  facet_wrap(~name) +
+  scale_fill_gradientn(colours = c("red", "white", "blue"), limits = c(-2, 2))
+plt_x1_x2_delta
+```
+
+
+```{r}
+plt_x1_x2_delta2 <-
+  data.frame(df_pred_te, df_pred_tp, df_fit,
+    f1hat_tp = f1hat_x1_x2_tp[, "s(x1,x2)"],
+    f2hat_tp = f2hat_x1_x2_tp[, "s(x1,x2)"],
+    f1hat_te = f1hat_x1_x2_te[, "te(x1,x2)"],
+    f2hat_te = f2hat_x1_x2_te[, "te(x1,x2)"],
+    fhat_delta1 = f1hat_x1_x2_te[, "te(x1,x2)"] - y_x1_x2_f1,
+    fhat_delta2 = f2hat_x1_x2_te[, "te(x1,x2)"] - y_x1_x2_f2) %>%
+  pivot_longer(cols = c("fhat_delta1", "fhat_delta2")) %>%
+  ggplot() +
+  theme_classic(base_size = 18) +
+  geom_raster(aes(x1, x2, fill = value)) +
+  facet_wrap(~name) +
+  scale_fill_gradientn(colours = c("red", "white", "blue"), limits = c(-2, 2))
+plt_x1_x2_delta2
+```
+
+
+```{r}
+K1 <- K2 <- 10
+fit_dc_x1_x2_f1 <- 
+  gam(y_x1_x2_f1 ~ s(x1, k = K1, bs = "cr") +
+        s(x2, k = K2, bs = "cr") +
+        ## interaction term
+        ti(x1, x2, k = c(K1, K2), 
+           bs = c("cr", "cr")),
+      method = "REML", 
+      data = df_fit)
+
+fit_dc_x1_x2_f2 <- 
+  gam(y_x1_x2_f2 ~ s(x1, k = K1, bs = "cr") +
+        s(x2, k = K2, bs = "cr") +
+        ti(x1, x2, k = c(K1, K2), 
+           bs = c("cr", "cr")),
+      method = "REML", 
+      data = df_fit)
+```
+
+```{r}
+## use the tp approach
+summary(fit_dc_x1_x2_f1)
+```
+
+
+
+
+```{r}
+fit_dc_sub_x1_x2_f1 <-
+  gam(y_x1_x2_f1 ~ s(x1, k = K1, bs = "cr") +
+    s(x2, k = K2, bs = "cr"),
+  method = "REML", 
+  data = df_fit)
+
+anova(fit_dc_sub_x1_x2_f1, fit_dc_x1_x2_f1, test = "Chisq")
+```
+
+
+```{r}
+AIC(fit_dc_sub_x1_x2_f1, fit_dc_x1_x2_f1)
+```
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+```{r}
+df_fit$x1_exp <- exp(df_fit$x1)
+
+fit_te_x1_exp_x2_f1_te <- 
+  gam(y_x1_x2_f1 ~ te(x1_exp, x2, 
+                      k = c(10, 10), 
+                      bs = c("cr", "cr")),
+      method = "REML", 
+      data = df_fit)
+fit_te_x1_exp_x2_f2_te <- 
+  gam(y_x1_x2_f2 ~ te(x1_exp, x2, 
+                      k = c(10, 10),
+                      bs = c("cr", "cr")),
+      method = "REML", 
+      data = df_fit)
+
+## get estimated coefficients
+# grid of new x1_exp, x2 values to predict on
+x1_exp_pred_te <- seq(min(df_fit$x1_exp), 
+               max(df_fit$x1_exp), 
+               len = nx_pred)
+x2_pred_te <- seq(min(x2), 
+               max(x2), 
+               len = nx_pred)
+
+# get all combinations of x1_exp and x2 values
+df_pred_te <- expand.grid(x1_exp = x1_exp_pred_te, x2 = x2_pred_te)
+# get actual coefficient estimates
+f1hat_x1_exp_x2_te <- predict(fit_te_x1_exp_x2_f1_te, 
+                       newdata = df_pred_te, 
+                       type = "terms")
+f2hat_x1_exp_x2_te <- predict(fit_te_x1_exp_x2_f2_te, 
+                       newdata = df_pred_te, 
+                       type = "terms")
+# plot them
+plt_x1_exp_x2_te <-
+  data.frame(df_pred_te,
+    f1hat_te = f1hat_x1_exp_x2_te[, "te(x1_exp,x2)"],
+    f2hat_te = f2hat_x1_exp_x2_te[, "te(x1_exp,x2)"]) %>%
+  pivot_longer(cols = c("f1hat_te", "f2hat_te")) %>% 
+  ggplot() +
+  theme_classic(base_size = 18) +
+  geom_tile(aes(log(x1_exp), x2, fill = value)) +
+  facet_wrap(~name) +
+  scale_fill_gradientn(colours = c("red", "white", "blue"), limits = c(-2, 2))
+
+plt_x1_exp_x2_te
+```
+
+
+
+```{r}
+N <- 500
+x1 <- runif(N, -3, 3)
+x2 <- runif(N, -3, 3)
+x3 <- rbinom(N, 1, 0.5)
+## this is not very possible to use in public health
+f1 <- function(x1, x2) 2 * cos(pi * x1 / 4) * sin(pi * x2 / 2)
+## more plausible in this case
+f2 <- function(x1, x2) sin(pi / 2 + x1) + cos(x2^2 / 4)
+y <- 2 + f1(x1, x2) * (1 - x3) + f2(x1, x2) * x3 + rnorm(N)
+
+df_fit <- data.frame(y, x1, x2, x3)
+
+fit <- gam(y ~ te(x1, x2, by = x3,
+                      k = c(10, 10),
+                      bs = c("cr", "cr")) + 
+             ## multiply the basis function to the X2
+             te(x1, x2, by = 1 - x3,
+                      k = c(10, 10),
+                      bs = c("cr", "cr")) ,
+           method = "REML", 
+           data = df_fit)
+
+nx_pred <- 1000
+x1_pred_te <- seq(min(df_fit$x1), 
+                 max(df_fit$x1), 
+                 len = nx_pred)
+x2_pred_te <- seq(min(df_fit$x1), 
+                 max(df_fit$x1), 
+                 len = nx_pred)
+df_pred_te <- expand.grid(x1 = x1_pred_te, x2 = x2_pred_te, x3 = 1)
+# get actual coefficient estimates
+fhat_x1_x2_te <- predict(fit, 
+                       newdata = df_pred_te, 
+                       type = "terms")
+
+
+df_pred <- data.frame(df_pred_te)
+coef_ests <- predict(fit, 
+                     newdata = df_pred, 
+                     type = "terms")
+coef_ests
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
